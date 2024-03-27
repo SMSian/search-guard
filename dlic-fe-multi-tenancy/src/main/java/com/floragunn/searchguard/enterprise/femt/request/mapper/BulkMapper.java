@@ -60,7 +60,7 @@ public class BulkMapper {
                 indexRequest.id(newId);
 
                 Map<String, Object> source = XContentHelper.convertToMap(indexRequest.source(), true, indexRequest.getContentType()).v2();
-
+                //TODO mt_switch_on
                 Map<String, Object> newSource = new LinkedHashMap<>(source);
                 RequestResponseTenantData.appendSgTenantFieldTo(newSource, tenant);
 

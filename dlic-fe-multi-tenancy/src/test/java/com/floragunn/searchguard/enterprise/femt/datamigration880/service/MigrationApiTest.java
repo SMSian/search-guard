@@ -224,7 +224,7 @@ public class MigrationApiTest {
                 log.debug("Backup indices created when migration process is run twice '{}'", indices);
             }
             assertThat(getIndexResponse.getIndices(), arrayWithSize(2));
-            String migratedSpaceId = spaceId + "__sg_ten__-1216324346_sgsglobaltenant";
+            String migratedSpaceId = spaceId;
             String spaceSource = environmentHelper.getDocumentSource(GLOBAL_TENANT_INDEX.indexName(), migratedSpaceId).orElseThrow();
             for (String backupIndex : getIndexResponse.getIndices()) {
                 environmentHelper.assertThatDocumentExists(backupIndex, spaceId);
@@ -322,7 +322,7 @@ public class MigrationApiTest {
 
     private void assertThatOnlySmallMigratedDatasetIsPresentInGlobalTenantIndex() {
         assertThat(environmentHelper.countDocumentInIndex(GLOBAL_TENANT_INDEX.indexName()), equalTo(32L));
-        environmentHelper.assertThatDocumentExists(GLOBAL_TENANT_INDEX.indexName(), "space:global_default__sg_ten__-1216324346_sgsglobaltenant");
+        environmentHelper.assertThatDocumentExists(GLOBAL_TENANT_INDEX.indexName(), "space:global_default");
         environmentHelper.assertThatDocumentExists(GLOBAL_TENANT_INDEX.indexName(), "space:configured_default__sg_ten__191795427_performancereviews");
         environmentHelper.assertThatDocumentExists(GLOBAL_TENANT_INDEX.indexName(), "space:configured_default__sg_ten__-738948632_performancereviews");
         environmentHelper.assertThatDocumentExists(GLOBAL_TENANT_INDEX.indexName(), "space:configured_default__sg_ten__-634608247_abcdef22");

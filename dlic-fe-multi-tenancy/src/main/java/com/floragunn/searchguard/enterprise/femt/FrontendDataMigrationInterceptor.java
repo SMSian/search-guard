@@ -105,6 +105,7 @@ class FrontendDataMigrationInterceptor {
                 if(isKibanaIndex) {
                     Map<String, Object> source = XContentHelper.convertToMap(indexRequest.source(), true, indexRequest.getContentType()).v2();
                     if(RequestResponseTenantData.isScopedId(indexRequest.id())) {
+                        //TODO mt_switch_on - nothing to do
                         if (!RequestResponseTenantData.containsSgTenantField(source)) {
                             String tenantName = RequestResponseTenantData.extractTenantFromId(indexRequest.id());
                             log.debug(

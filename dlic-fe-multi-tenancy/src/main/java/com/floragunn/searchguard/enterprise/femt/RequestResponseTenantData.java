@@ -1,11 +1,15 @@
 package com.floragunn.searchguard.enterprise.femt;
 
 import com.floragunn.codova.documents.DocNode;
+import com.floragunn.searchguard.authz.TenantManager;
+import com.floragunn.searchguard.authz.config.Tenant;
+import com.google.common.base.Strings;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,6 +19,7 @@ public class RequestResponseTenantData {
 
     private final static Pattern INDEX_NAME_TENANT_PART = Pattern.compile("_(?<tenantName>-?\\d+_[^_]+)_.+");
 
+    private final static String STORAGE_GLOBAL_TENANT_ID = TenantManager.toInternalTenantName(Tenant.GLOBAL_TENANT_ID);
     public static final String SG_TENANT_FIELD = "sg_tenant";
     private static final String TENANT_SEPARATOR_IN_ID = "__sg_ten__";
     private static final String TENANT_NAME_GROUP = "tenantName";
@@ -25,10 +30,16 @@ public class RequestResponseTenantData {
         return SG_TENANT_FIELD;
     }
     public static String scopedId(String id, String tenant) {
-        return id + TENANT_SEPARATOR_IN_ID + tenant;
+        //TODO mt_switch_on - add support for global tenant
+        return isStorageGlobal(tenant) ? id : id + TENANT_SEPARATOR_IN_ID + tenant;
+    }
+
+    private static boolean isStorageGlobal(String tenant) {
+        return STORAGE_GLOBAL_TENANT_ID.equals(tenant);
     }
 
     public static String unscopedId(String id) {
+        //TODO mt_switch_on - null handling ?
         int i = id.indexOf(TENANT_SEPARATOR_IN_ID);
 
         if (i != -1) {
@@ -53,6 +64,8 @@ public class RequestResponseTenantData {
     }
 
     public static String extractTenantFromId(String id) {
+        //TODO mt_switch_on move to: com.floragunn.searchguard.enterprise.femt.FrontendDataMigrationInterceptor.handleDataMigration
+        // ???
         if(isScopedId(id)) {
             return id.substring(id.indexOf(TENANT_SEPARATOR_IN_ID) + TENANT_SEPARATOR_IN_ID.length());
         } else {
@@ -69,18 +82,20 @@ public class RequestResponseTenantData {
     }
 
     public static void appendSgTenantFieldTo(Map<String, Object> map, String tenant) {
-        map.put(SG_TENANT_FIELD, tenant);
+        if((!Strings.isNullOrEmpty(tenant)) && (!isStorageGlobal(tenant))) {
+            map.put(SG_TENANT_FIELD, tenant);
+        }
     }
 
-    public static BoolQueryBuilder sgTenantIdsQuery(String tenant, String... ids) {
-        List<String> scopedIds = Stream.of(ids).map(id -> scopeIdIfNeeded(id, tenant)).toList();
-        return QueryBuilders.boolQuery().must(QueryBuilders.idsQuery().addIds(scopedIds.toArray(new String[] {})));
-    }
+    public static BoolQueryBuilder sgTenantFieldQuery(String tenantStorageId) {
+        BoolQueryBuilder queryBuilder = QueryBuilders.boolQuery();
 
-    public static BoolQueryBuilder sgTenantFieldQuery(String tenant) {
-        BoolQueryBuilder queryBuilder = QueryBuilders.boolQuery().minimumShouldMatch(1);
-        // TODO better tenant id
-        return queryBuilder.should(QueryBuilders.termQuery(SG_TENANT_FIELD, tenant));
+        // TODO mt_switch_on integration tests for the query are needed.
+        if(isStorageGlobal(tenantStorageId)) {
+            return queryBuilder.mustNot(QueryBuilders.existsQuery(SG_TENANT_FIELD));
+        } else {
+            return queryBuilder.minimumShouldMatch(1).should(QueryBuilders.termQuery(SG_TENANT_FIELD, tenantStorageId));
+        }
     }
 
     public static Optional<String> scopedIdForPrivateTenantIndexName(String id, String indexName, String indexNamePrefix) {

@@ -34,6 +34,7 @@ public class TenantManager {
     }
 
     public String toInternalTenantName(User user) {
+        //TODO mt_switch_on - handle global tenant
         final String requestedTenant = user.getRequestedTenant();
         if (isUserTenantHeader(requestedTenant)) {
             return toInternalTenantName(user.getName());

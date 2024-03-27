@@ -123,6 +123,7 @@ class CopyDataToTempIndexStep implements MigrationStep {
     }
 
     private static String scopeId(SearchHit hit, TenantIndex tenant, String indexNamePrefix) {
+        //TODO mt_switch_on
         String id = hit.getId();
         if(RequestResponseTenantData.isScopedId(id)) {
             String message = "Index '" + hit.getIndex() + "' contains already migrated document '" + hit.getId() + "'.";

@@ -42,6 +42,7 @@ public class AvailableTenantService {
                 final TransportAddress remoteAddress = threadContext.getTransient(ConfigConstants.SG_REMOTE_ADDRESS);
                 Set<String> internalRoles = authorizationService.getMappedRoles(user, remoteAddress);
                 Map<String, Boolean> tenantsWriteAccessMap = configProvider.getTenantAccessMapper().mapTenantsAccess(user, internalRoles);
+                // TODO mt_switch_on exist flag is not properly computed for global tenant
                 ImmutableSet<String> exists = tenantRepository.exists(tenantsWriteAccessMap.keySet().toArray(String[]::new));
                 Map<String, TenantAccessData> tenantsAccess = new HashMap<>(tenantsWriteAccessMap.size());
                 tenantsWriteAccessMap.entrySet()

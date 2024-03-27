@@ -90,6 +90,7 @@ class PopulateTenantsStep implements MigrationStep {
         if(tenants.isEmpty()) {
             return new StepResult(INDICES_NOT_FOUND_ERROR, "Indices related to front-end multi tenancy not found.");
         }
+        // TODO mt_switch_on exist flag is not properly computed for global tenant
         List<TenantIndex> globalTenants = tenants.stream().filter(TenantIndex::belongsToGlobalTenant).toList();
         if(globalTenants.size() != 1) {
             String message = "Definition of exactly one global tenant is expected, but found '" + globalTenants.size() + "'. "
