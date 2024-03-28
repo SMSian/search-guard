@@ -1,10 +1,12 @@
 package com.floragunn.searchguard.authz;
 
 import com.floragunn.fluent.collections.ImmutableSet;
+import com.floragunn.searchguard.authz.config.MultiTenancyConfigurationProvider;
 import com.floragunn.searchguard.authz.config.Tenant;
 import com.floragunn.searchguard.user.User;
 import org.elasticsearch.ElasticsearchException;
 
+import java.util.Objects;
 import java.util.Set;
 
 public class TenantManager {
@@ -12,13 +14,23 @@ public class TenantManager {
     private static final String USER_TENANT = "__user__";
 
     private final ImmutableSet<String> configuredTenants;
+    private final MultiTenancyConfigurationProvider multiTenancyConfigurationProvider;
 
-    public TenantManager(Set<String> tenantNames) {
+    public TenantManager(Set<String> tenantNames, MultiTenancyConfigurationProvider multiTenancyConfigurationProvider) {
         this.configuredTenants = ImmutableSet.of(tenantNames);
+        this.multiTenancyConfigurationProvider = Objects.requireNonNull(
+                multiTenancyConfigurationProvider, "Multi Tenancy Configuration Provider is required"
+        );
     }
 
     public boolean isTenantHeaderValid(String tenant) {
-        return Tenant.GLOBAL_TENANT_ID.equals(tenant) || USER_TENANT.equals(tenant) || configuredTenants.contains(tenant);
+        if (Tenant.GLOBAL_TENANT_ID.equals(tenant)) {
+            return multiTenancyConfigurationProvider.isGlobalTenantEnabled();
+        } else if (USER_TENANT.equals(tenant)) {
+            return multiTenancyConfigurationProvider.isPrivateTenantEnabled();
+        } else {
+            return configuredTenants.contains(tenant);
+        }
     }
 
     public boolean isUserTenantHeader(String tenant) {

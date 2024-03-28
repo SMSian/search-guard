@@ -21,14 +21,12 @@ public class FeMultiTenancyTenantAccessMapper  implements TenantAccessMapper {
     private final TenantManager tenantManager;
     private final TenantAuthorization tenantAuthorization;
     private final Actions actions;
-    private final FeMultiTenancyConfig feMultiTenancyConfig;
 
     public FeMultiTenancyTenantAccessMapper(TenantManager tenantManager, TenantAuthorization tenantAuthorization,
-                                            Actions actions, FeMultiTenancyConfig feMultiTenancyConfig) {
+                                            Actions actions) {
         this.tenantManager = tenantManager;
         this.tenantAuthorization = tenantAuthorization;
         this.actions = actions;
-        this.feMultiTenancyConfig = feMultiTenancyConfig;
     }
 
     @Override
@@ -57,11 +55,11 @@ public class FeMultiTenancyTenantAccessMapper  implements TenantAccessMapper {
             }
         }
 
-        if (!feMultiTenancyConfig.isGlobalTenantEnabled()) {
+        if (! tenantManager.isTenantHeaderValid(Tenant.GLOBAL_TENANT_ID)) {
             result.remove(Tenant.GLOBAL_TENANT_ID);
         }
 
-        if (! feMultiTenancyConfig.isPrivateTenantEnabled()) {
+        if (! tenantManager.isTenantHeaderValid(User.USER_TENANT)) {
             result.remove(user.getName());
         }
 

@@ -47,6 +47,10 @@ import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
+import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.containsFieldPointedByJsonPath;
 import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.containsNullValue;
 import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.containsValue;
 import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.docNodeSizeEqualTo;
@@ -58,6 +62,7 @@ import static org.elasticsearch.rest.RestStatus.CREATED;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
 
 public class GetAvailableTenantsActionTest {
 
@@ -107,9 +112,11 @@ public class GetAvailableTenantsActionTest {
             .indexPermissions("*") //
             .on(FRONTEND_INDEX +"*"));
 
-    private static final User USER_WITHOUT_ACCESS_TO_ANY_TENANT = new User("user_without_access_to_any_tenant") //
-            .roles(new Role("no_tenant_access") //
-                    .clusterPermissions("cluster:admin:searchguard:femt:user/available_tenants/get"));
+    private static final User USER_WITH_ACCESS_ONLY_TO_GLOBAL_TENANT = new User("user_with_access_only_to_global_tenant") //
+            .roles(new Role("global_tenant_access") //
+                    .clusterPermissions("cluster:admin:searchguard:femt:user/available_tenants/get")
+                    .tenantPermission("*")
+                    .on(Tenant.GLOBAL_TENANT_ID));
 
 
     @ClassRule
@@ -119,7 +126,7 @@ public class GetAvailableTenantsActionTest {
         .roleMapping(new RoleMapping("SGS_KIBANA_USER").users(USER_SINGLE_TENANT.getName(), USER_EACH_TENANT_READ.getName(),
             USER_EACH_TENANT_WRITE.getName(), USER_SOME_TENANT_ACCESS.getName()),//
             new RoleMapping("SGS_KIBANA_SERVER").users(FRONTEND_SERVER_USER.getName())) //
-        .users(FRONTEND_SERVER_USER, USER_SINGLE_TENANT, USER_EACH_TENANT_READ, USER_EACH_TENANT_WRITE, USER_SOME_TENANT_ACCESS, USER_WITHOUT_ACCESS_TO_ANY_TENANT) //
+        .users(FRONTEND_SERVER_USER, USER_SINGLE_TENANT, USER_EACH_TENANT_READ, USER_EACH_TENANT_WRITE, USER_SOME_TENANT_ACCESS, USER_WITH_ACCESS_ONLY_TO_GLOBAL_TENANT) //
         .frontendMultiTenancy(new FrontendMultiTenancy(true).index(FRONTEND_INDEX).serverUser(FRONTEND_SERVER_USER.getName())) //
         .tenants(HR_TENANT, FINANCE_TENANT, SALES_TENANT, OPERATIONS_TENANT, RD_TENANT, BD_TENANT, LEGAL_TENANT,
             IT_TENANT, PR_TENANT, QA_TENANT) //
@@ -167,16 +174,16 @@ public class GetAvailableTenantsActionTest {
             assertThat(body, containsValue("$.data.tenants.hr_tenant.read_access", true));
             assertThat(body, containsValue("$.data.tenants.hr_tenant.write_access", true));
             assertThat(body, containsValue("$.data.tenants.hr_tenant.exists", true));
-            assertThat(body, containsValue("$.data.tenants.user_single_tenant.read_access", true));
-            assertThat(body, containsValue("$.data.tenants.user_single_tenant.write_access", true));
-            assertThat(body, containsValue("$.data.tenants.user_single_tenant.exists", false));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_single_tenant", "read_access")));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_single_tenant", "write_access")));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_single_tenant", "exists")));
             // user with role SGS_KIBANA_USER has write access to global tenant
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.read_access", true));
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.write_access", true));
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.exists", false));
 
             // only accessible tenants should be present in the response: hr_tenant,  private user tenant
-            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 3));
+            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 2));
         }
     }
 
@@ -193,7 +200,7 @@ public class GetAvailableTenantsActionTest {
             log.debug("Response status '{}' and body '{}'.", response.getStatusCode(), response.getBody());
             assertThat(response.getStatusCode(), equalTo(SC_OK));
             DocNode body = response.getBodyAsDocNode();
-            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 12));
+            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 11));
             assertThat(body, containsValue("$.data.default_tenant", Tenant.GLOBAL_TENANT_ID));
             assertThat(body, containsValue("$.data.username", USER_EACH_TENANT_READ.getName()));
             assertThat(body, containsNullValue("$.data.user_requested_tenant"));
@@ -205,9 +212,9 @@ public class GetAvailableTenantsActionTest {
                 assertThat(body, containsValue(writeAccessPath, false));
                 assertThat(body, containsValue(existPath, true));
             }
-            //user should always have access to its private tenant
-            assertThat(body, containsValue("$.data.tenants.user_each_tenant_read.write_access", true));
-            assertThat(body, containsValue("$.data.tenants.user_each_tenant_read.exists", true));
+            //user should not have access to its private tenant (private tenants are disabled)
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_each_tenant_read", "write_access")));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_each_tenant_read", "exists")));
             // user with role SGS_KIBANA_USER has write access to global tenant
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.read_access", true));
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.write_access", true));
@@ -221,6 +228,9 @@ public class GetAvailableTenantsActionTest {
             .with(USER_EACH_TENANT_WRITE.getName()) //
             .toArray(String[]::new);
         createTenants(FRONTEND_INDEX, tenantsToBeCreated);
+        List<String> tenantsWithoutPrivate = Arrays.stream(tenantsToBeCreated)
+                .filter(tenant -> !tenant.equals(USER_EACH_TENANT_WRITE.getName()))
+                .toList();
         try(GenericRestClient client = cluster.getRestClient(USER_EACH_TENANT_WRITE)) {
 
             HttpResponse response = client.get("/_searchguard/current_user/tenants");
@@ -228,11 +238,11 @@ public class GetAvailableTenantsActionTest {
             log.debug("Response status '{}' and body '{}'.", response.getStatusCode(), response.getBody());
             assertThat(response.getStatusCode(), equalTo(SC_OK));
             DocNode body = response.getBodyAsDocNode();
-            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 12));
+            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 11));
             assertThat(body, containsValue("$.data.default_tenant", Tenant.GLOBAL_TENANT_ID));
             assertThat(body, containsValue("$.data.username", USER_EACH_TENANT_WRITE.getName()));
             assertThat(body, containsNullValue("$.data.user_requested_tenant"));
-            for(String tenantName : tenantsToBeCreated) {
+            for(String tenantName : tenantsWithoutPrivate) {
                 String readAccessPath = "$.data.tenants." + tenantName + ".read_access";
                 String writeAccessPath = "$.data.tenants." + tenantName + ".write_access";
                 String existPath = "$.data.tenants." + tenantName + ".exists";
@@ -246,7 +256,6 @@ public class GetAvailableTenantsActionTest {
     @Test
     public void shouldFindAccessibleTenantsWhichDoesNotExist() throws Exception {
         String[] accessibleTenantsNames = ALL_DEFINED_TENANTS.map(TestSgConfig.Tenant::getName) //
-            .with(USER_EACH_TENANT_WRITE.getName()) //
             .toArray(String[]::new);
         try(GenericRestClient client = cluster.getRestClient(USER_EACH_TENANT_WRITE)) {
 
@@ -255,10 +264,13 @@ public class GetAvailableTenantsActionTest {
             log.debug("Response status '{}' and body '{}'.", response.getStatusCode(), response.getBody());
             assertThat(response.getStatusCode(), equalTo(SC_OK));
             DocNode body = response.getBodyAsDocNode();
-            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 12));
+            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 11));
             assertThat(body, containsValue("$.data.default_tenant", Tenant.GLOBAL_TENANT_ID));
             assertThat(body, containsValue("$.data.username", USER_EACH_TENANT_WRITE.getName()));
             assertThat(body, containsNullValue("$.data.user_requested_tenant"));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_each_tenant_write", "read_access")));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_each_tenant_write", "write_access")));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_each_tenant_write", "exists")));
             for(String tenantName : accessibleTenantsNames) {
                 String readAccessPath = "$.data.tenants." + tenantName + ".read_access";
                 String writeAccessPath = "$.data.tenants." + tenantName + ".write_access";
@@ -280,7 +292,7 @@ public class GetAvailableTenantsActionTest {
             log.debug("Response status '{}' and body '{}'.", response.getStatusCode(), response.getBody());
             assertThat(response.getStatusCode(), equalTo(SC_OK));
             DocNode body = response.getBodyAsDocNode();
-            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 7));
+            assertThat(body, docNodeSizeEqualTo("$.data.tenants", 6));
             assertThat(body, containsValue("$.data.default_tenant", Tenant.GLOBAL_TENANT_ID));
             assertThat(body, containsValue("$.data.username", USER_SOME_TENANT_ACCESS.getName()));
             assertThat(body, containsNullValue("$.data.user_requested_tenant"));
@@ -296,8 +308,8 @@ public class GetAvailableTenantsActionTest {
             assertThat(body, containsValue("$.data.tenants.finance_tenant.exists", true));
             assertThat(body, containsValue("$.data.tenants.sales_tenant.write_access", true));
             assertThat(body, containsValue("$.data.tenants.sales_tenant.exists", false));
-            assertThat(body, containsValue("$.data.tenants.user_some_tenant_access.write_access", true));
-            assertThat(body, containsValue("$.data.tenants.user_some_tenant_access.exists", false));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_some_tenant_access", "write_access")));
+            assertThat(body, not(containsFieldPointedByJsonPath("$.data.tenants.user_some_tenant_access", "exists")));
             // user with role SGS_KIBANA_USER has write access to global tenant
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.read_access", true));
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.write_access", true));
@@ -318,18 +330,18 @@ public class GetAvailableTenantsActionTest {
 
     @Test
     public void shouldReturnUnauthorized_whenUserDoesNotHaveAccessToAnyTenantAndDefaultTenantCannotBeDetermined() throws Exception {
-        try(GenericRestClient client = cluster.getRestClient(USER_WITHOUT_ACCESS_TO_ANY_TENANT); GenericRestClient adminClient = cluster.getAdminCertRestClient()) {
+        try(GenericRestClient client = cluster.getRestClient(USER_WITH_ACCESS_ONLY_TO_GLOBAL_TENANT); GenericRestClient adminClient = cluster.getAdminCertRestClient()) {
 
             HttpResponse response = client.get("/_searchguard/current_user/tenants");
             assertThat(response.getStatusCode(), equalTo(SC_OK));
-            assertThat(response.getBodyAsDocNode(), containsValue("$.data.default_tenant", com.floragunn.searchguard.user.User.USER_TENANT));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.data.default_tenant", Tenant.GLOBAL_TENANT_ID));
 
             cluster.callAndRestoreConfig(FeMultiTenancyConfig.TYPE, () -> {
 
                 HttpResponse getConfigResponse = adminClient.get("/_searchguard/config/fe_multi_tenancy");
                 assertThat(getConfigResponse.getStatusCode(), equalTo(SC_OK));
                 DocNode config = getConfigResponse.getBodyAsDocNode().getAsNode("content");
-                config = config.with("private_tenant_enabled", false);
+                config = config.with("global_tenant_enabled", false);
                 HttpResponse putConfigResponse = adminClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
                 assertThat(putConfigResponse.getStatusCode(), equalTo(SC_OK));
 

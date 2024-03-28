@@ -154,10 +154,10 @@ public class FeMultiTenancyModule implements SearchGuardModule, ComponentStatePr
                     ? new ActionGroup.FlattenedIndex(configMap.get(CType.ACTIONGROUPS))
                     : ActionGroup.FlattenedIndex.EMPTY;
 
-            tenantManager = new TenantManager(tenants.getCEntries().keySet());
+            tenantManager = new TenantManager(tenants.getCEntries().keySet(), feMultiTenancyConfigurationProvider);
             tenantAuthorization = new RoleBasedTenantAuthorization(roles, actionGroups, baseDependencies.getActions(), tenantManager,
                     feMultiTenancyConfig.getMetricsLevel());
-            feMultiTenancyTenantAccessMapper = new FeMultiTenancyTenantAccessMapper(tenantManager, tenantAuthorization, baseDependencies.getActions(), feMultiTenancyConfig);
+            feMultiTenancyTenantAccessMapper = new FeMultiTenancyTenantAccessMapper(tenantManager, tenantAuthorization, baseDependencies.getActions());
             RequestHandlerFactory requestHandlerFactory = new RequestHandlerFactory(baseDependencies.getLocalClient(), baseDependencies.getThreadPool().getThreadContext(), baseDependencies.getClusterService(), baseDependencies.getGuiceDependencies().getIndicesService());
 
             if (feMultiTenancyConfig.isEnabled()) {
