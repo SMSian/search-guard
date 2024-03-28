@@ -21,11 +21,15 @@ import co.elastic.clients.elasticsearch.core.MgetRequest;
 import co.elastic.clients.elasticsearch.core.MgetResponse;
 import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import com.floragunn.codova.documents.DocNode;
+import com.floragunn.searchguard.authz.TenantManager;
 import com.floragunn.searchguard.authz.config.Tenant;
 import com.floragunn.searchguard.client.RestHighLevelClient;
+import com.floragunn.searchsupport.junit.matcher.DocNodeMatchers;
 import com.google.common.collect.ImmutableList;
 import org.apache.http.HttpStatus;
 import org.apache.http.message.BasicHeader;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
@@ -39,6 +43,7 @@ import com.floragunn.searchguard.test.GenericRestClient;
 import com.floragunn.searchguard.test.TestSgConfig;
 import com.floragunn.searchguard.test.helper.cluster.LocalCluster;
 import com.google.common.collect.ImmutableMap;
+import org.hamcrest.MatcherAssert;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
@@ -53,6 +58,8 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 
 public class MultitenancyTests {
+
+    private static final Logger log = LogManager.getLogger(MultitenancyTests.class);
 
     private final static TestSgConfig.User USER_DEPT_01 = new TestSgConfig.User("user_dept_01").attr("dept_no", "01").roles("sg_tenant_user_attrs");
     private final static TestSgConfig.User USER_DEPT_02 = new TestSgConfig.User("user_dept_02").attr("dept_no", "02").roles("sg_tenant_user_attrs");
@@ -152,89 +159,79 @@ public class MultitenancyTests {
         }
     }
 
-    @Ignore
     @Test
-    public void testMtMulti() throws Exception {
-
+    public void shouldFilterTenantDocumentsDuringSearching() throws Exception {
         Client tc = cluster.getInternalNodeClient();
-        String body = "{" + "\"type\" : \"index-pattern\"," + "\"updated_at\" : \"2018-09-29T08:56:59.066Z\"," + "\"index-pattern\" : {"
-                + "\"title\" : \"humanresources\"" + "}}";
+        DocNode indexMappings = DocNode.of("_doc", DocNode.of("properties", DocNode.of("sg_tenant", DocNode.of("type", "keyword"))));
+        ImmutableMap<String, Integer> settings = ImmutableMap.of("number_of_shards", 1, "number_of_replicas", 0);
+        tc.admin().indices().create(new CreateIndexRequest(".kibana").settings(settings).mapping(indexMappings)).actionGet();
 
-        tc.admin().indices().create(
-                new CreateIndexRequest(".kibana").settings(ImmutableMap.of("number_of_shards", 1, "number_of_replicas", 0)))
-                .actionGet();
-
-        tc.index(new IndexRequest(".kibana").id("index-pattern:9fbbd1a0-c3c5-11e8-a13f-71b8ea5a4f7b__sg_ten__human_resources")
+        String body = "{" + "\"type\" : \"custom-saved-object\"," + "\"updated_at\" : \"2018-09-29T08:56:59.066Z\"," + "\"details\" : {"
+            + "\"title\" : \"humanresources\"}," + "\"sg_tenant\":\"1592542611_humanresources\"" + "}";
+        tc.index(new IndexRequest(".kibana").id("custom:hr__sg_ten__1592542611_humanresources")
                 .setRefreshPolicy(RefreshPolicy.IMMEDIATE).source(body, XContentType.JSON)).actionGet();
 
+        body = "{" + "\"type\" : \"custom-saved-object\"," + "\"updated_at\" : \"2018-09-29T08:56:59.066Z\"," + "\"details\" : {"
+            + "\"title\" : \"global tenant\"" + "}}";
+        tc.index(new IndexRequest(".kibana").id("custom-saved-object:global")
+            .setRefreshPolicy(RefreshPolicy.IMMEDIATE).source(body, XContentType.JSON)).actionGet();
+
         try (GenericRestClient client = cluster.getRestClient("admin", "admin")) {
+            body = "{\"query\" : {\"term\" : { \"type.keyword\" : \"custom-saved-object\"}}}";
+            BasicHeader header = new BasicHeader("sgtenant", "SGS_GLOBAL_TENANT");
+            GenericRestClient.HttpResponse response = client.postJson(".kibana/_search/?pretty", body, header);
+            log.info("Search response status code '{}' and body '{}'", response.getStatusCode(), response.getBody());
+            assertThat(response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.hits.total.value", 1));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.hits.hits[0]._id", "custom-saved-object:global"));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.hits.hits[0]._source.details.title", "global tenant"));
+        }
 
-            //System.out.println("#### search");
-            GenericRestClient.HttpResponse res;
-            body = "{\"query\" : {\"term\" : { \"_id\" : \"index-pattern:9fbbd1a0-c3c5-11e8-a13f-71b8ea5a4f7b\"}}}";
-            Assert.assertEquals(HttpStatus.SC_OK,
-                    (res = client.postJson(".kibana/_search/?pretty", body, new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-            ////System.out.println(res.getBody());
-            Assert.assertFalse(res.getBody().contains("exception"));
-            Assert.assertTrue(res.getBody().contains("humanresources"));
-            Assert.assertTrue(res.getBody().contains("\"value\" : 1"));
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));
+        try (GenericRestClient client = cluster.getRestClient("hr_employee", "hr_employee")) {
+            body = "{\"query\" : {\"term\" : { \"type.keyword\" : \"custom-saved-object\"}}}";
+            BasicHeader header = new BasicHeader("sgtenant", "human_resources");
+            GenericRestClient.HttpResponse response = client.postJson(".kibana/_search/?pretty", body, header);
+            log.info("Search response status code '{}' and body '{}'", response.getStatusCode(), response.getBody());
+            assertThat(response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.hits.total.value", 1));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.hits.hits[0]._id", "custom:hr"));
+            assertThat(response.getBodyAsDocNode(), containsValue("$.hits.hits[0]._source.details.title", "humanresources"));
+        }
+    }
 
-            //System.out.println("#### msearch");
-            body = "{\"index\":\".kibana\", \"ignore_unavailable\": false}" + System.lineSeparator()
-                    + "{\"size\":10, \"query\":{\"bool\":{\"must\":{\"match_all\":{}}}}}" + System.lineSeparator();
+    @Test
+    public void shouldChooseCorrectTenantDuringDocumentGet() throws Exception {
+        Client tc = cluster.getInternalNodeClient();
+        DocNode indexMappings = DocNode.of("_doc", DocNode.of("properties", DocNode.of("sg_tenant", DocNode.of("type", "keyword"))));
+        ImmutableMap<String, Integer> settings = ImmutableMap.of("number_of_shards", 1, "number_of_replicas", 0);
+        tc.admin().indices().create(new CreateIndexRequest(".kibana").settings(settings).mapping(indexMappings)).actionGet();
 
-            Assert.assertEquals(HttpStatus.SC_OK,
-                    (res = client.postJson("_msearch/?pretty", body, new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-            ////System.out.println(res.getBody());
-            Assert.assertFalse(res.getBody().contains("exception"));
-            Assert.assertTrue(res.getBody().contains("humanresources"));
-            Assert.assertTrue(res.getBody().contains("\"value\" : 1"));
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));
+        String body = "{" + "\"type\" : \"custom-saved-object\"," + "\"updated_at\" : \"2018-09-29T08:56:59.066Z\"," + "\"details\" : {"
+            + "\"title\" : \"humanresources\"}," + "\"sg_tenant\":\"1592542611_humanresources\"" + "}";
+        tc.index(new IndexRequest(".kibana").id("custom:hr__sg_ten__1592542611_humanresources")
+            .setRefreshPolicy(RefreshPolicy.IMMEDIATE).source(body, XContentType.JSON)).actionGet();
 
-            //System.out.println("#### get");
-            Assert.assertEquals(HttpStatus.SC_OK, (res = client.get(".kibana/_doc/index-pattern:9fbbd1a0-c3c5-11e8-a13f-71b8ea5a4f7b?pretty",
-                    new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-            ////System.out.println(res.getBody());
-            Assert.assertFalse(res.getBody().contains("exception"));
-            Assert.assertTrue(res.getBody().contains("humanresources"));
-            Assert.assertTrue(res.getBody().contains("\"found\" : true"));
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));
+        body = "{" + "\"type\" : \"custom-saved-object\"," + "\"updated_at\" : \"2018-09-29T08:56:59.066Z\"," + "\"details\" : {"
+            + "\"title\" : \"global tenant\"" + "}}";
+        tc.index(new IndexRequest(".kibana").id("custom-saved-object:global")
+            .setRefreshPolicy(RefreshPolicy.IMMEDIATE).source(body, XContentType.JSON)).actionGet();
 
-            //System.out.println("#### mget");
-            body = "{\"docs\" : [{\"_index\" : \".kibana\",\"_id\" : \"index-pattern:9fbbd1a0-c3c5-11e8-a13f-71b8ea5a4f7b\"}]}";
-            Assert.assertEquals(HttpStatus.SC_OK,
-                    (res = client.postJson("_mget/?pretty", body, new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-            ////System.out.println(res.getBody());
-            Assert.assertFalse(res.getBody().contains("exception"));
-            Assert.assertTrue(res.getBody().contains("humanresources"));
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));
+        try (GenericRestClient client = cluster.getRestClient("admin", "admin")) {
+            BasicHeader header = new BasicHeader("sgtenant", "SGS_GLOBAL_TENANT");
+            GenericRestClient.HttpResponse response = client.get(".kibana/_doc/custom-saved-object:global?pretty", header);
+            log.info("Search response status code '{}' and body '{}'", response.getStatusCode(), response.getBody());
+            assertThat(response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
-            //System.out.println("#### index");
-            body = "{" + "\"type\" : \"index-pattern\"," + "\"updated_at\" : \"2017-09-29T08:56:59.066Z\"," + "\"index-pattern\" : {"
-                    + "\"title\" : \"xyz\"" + "}}";
-            Assert.assertEquals(HttpStatus.SC_CREATED,
-                    (res = client.putJson(".kibana/_doc/abc?pretty", body, new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-            ////System.out.println(res.getBody());
-            Assert.assertFalse(res.getBody().contains("exception"));
-            Assert.assertTrue(res.getBody().contains("\"result\" : \"created\""));
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));
+            assertThat(response.getBodyAsDocNode(), containsValue("$._source.details.title", "global tenant"));
+        }
 
-            //System.out.println("#### bulk");
-            body = "{ \"index\" : { \"_index\" : \".kibana\", \"_id\" : \"b1\" } }" + System.lineSeparator() + "{ \"field1\" : \"value1\" }"
-                    + System.lineSeparator() + "{ \"index\" : { \"_index\" : \".kibana\",\"_id\" : \"b2\" } }" + System.lineSeparator()
-                    + "{ \"field2\" : \"value2\" }" + System.lineSeparator();
+        try (GenericRestClient client = cluster.getRestClient("hr_employee", "hr_employee")) {
+            BasicHeader header = new BasicHeader("sgtenant", "human_resources");
+            GenericRestClient.HttpResponse response = client.get(".kibana/_doc/custom:hr?pretty", header);
+            log.info("Search response status code '{}' and body '{}'", response.getStatusCode(), response.getBody());
+            assertThat(response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
-            Assert.assertEquals(HttpStatus.SC_OK,
-                    (res = client.putJson("_bulk?pretty", body, new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-            ////System.out.println(res.getBody());
-            Assert.assertFalse(res.getBody().contains("exception"));
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));
-            Assert.assertTrue(res.getBody().contains("\"errors\" : false"));
-            Assert.assertTrue(res.getBody().contains("\"result\" : \"created\""));
-
-            Assert.assertEquals(HttpStatus.SC_OK, (res = client.get("_cat/indices")).getStatusCode());
-            Assert.assertTrue(res.getBody().contains(".kibana_92668751_admin"));            
+            assertThat(response.getBodyAsDocNode(), containsValue("$._source.details.title", "humanresources"));
         }
     }
 
