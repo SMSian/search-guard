@@ -112,6 +112,7 @@ public class FeMultiTenancyModule implements SearchGuardModule, ComponentStatePr
                 feMultiTenancyConfigurationProvider, baseDependencies.getClusterService(),
                 baseDependencies.getConfigurationRepository()
         );
+        baseDependencies.getConfigurationRepository().subscribeOnChange(new ExtendMappingsListener(baseDependencies.getLocalClient()));
 
         baseDependencies.getConfigurationRepository().subscribeOnChange((ConfigMap configMap) -> {
             SgDynamicConfiguration<FeMultiTenancyConfig> config = configMap.get(FeMultiTenancyConfig.TYPE);

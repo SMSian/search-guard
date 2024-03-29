@@ -507,7 +507,7 @@ public class MultitenancyTests {
     }
 
     @Test
-    public void testMultitenancyConfigApi_shouldNotAllowToChangeEnabledFlag_whenThereAreKibanaIndices() throws Exception {
+    public void testMultitenancyConfigApi_shouldAllowToChangeEnabledFlag_whenThereAreKibanaIndices() throws Exception {
         try (GenericRestClient adminCertClient = cluster.getAdminCertRestClient()) {
             cluster.callAndRestoreConfig(FeMultiTenancyConfig.TYPE, () -> {
                 GenericRestClient.HttpResponse response = adminCertClient.get("/_searchguard/config/fe_multi_tenancy");
@@ -543,41 +543,37 @@ public class MultitenancyTests {
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
                 //FeMultiTenancyConfig API
+                // Send the same value
+                config = DocNode.of("enabled", false);
+
+                response = adminCertClient.patchJsonMerge("/_searchguard/config/fe_multi_tenancy", config);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+
                 //try to change enabled flag
                 config = DocNode.of("enabled", true);
 
                 response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
-                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
-                assertThat(response.getBodyAsDocNode(),
-                        containsValue("$.error.details.['frontend_multi_tenancy.default'].[0].error",
-                                "Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."
-                        )
-                );
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
-                config = DocNode.of("enabled", true);
+                config = DocNode.of("enabled", false);
 
                 response = adminCertClient.patchJsonMerge("/_searchguard/config/fe_multi_tenancy", config);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
                 assertThat(response.getBodyAsDocNode(),
                         containsValue("error.details._.[0].error",
-                                "Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."
+                                "Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"
                         )
                 );
 
                 //send the same value that is already configured
-                config = DocNode.of("enabled", false);
+                config = DocNode.of("enabled", true);
 
                 response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
-                config = DocNode.of("enabled", false);
-
-                response = adminCertClient.patchJsonMerge("/_searchguard/config/fe_multi_tenancy", config);
-                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
-
                 //BulkConfig API
                 //try to change enabled flag
-                config = DocNode.of("enabled", true);
+                config = DocNode.of("enabled", false);
 
                 bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
 
@@ -585,12 +581,12 @@ public class MultitenancyTests {
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
                 assertThat(response.getBodyAsDocNode(),
                         containsValue("$.error.details.['frontend_multi_tenancy.default'].[0].error",
-                                "Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."
+                                "Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"
                         )
                 );
 
                 //send the same value that is already configured
-                config = DocNode.of("enabled", false);
+                config = DocNode.of("enabled", true);
 
                 bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
 

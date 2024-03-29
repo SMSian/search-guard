@@ -1,7 +1,7 @@
 package com.floragunn.searchguard.configuration;
 
-public interface LocalConfigChangeListener {
-    CType<?> getConfigType();
+public interface LocalConfigChangeListener<T> {
+    CType<T> getConfigType();
 
-    void onChange(SgDynamicConfiguration<?> newConfig);
+    void onChange(SgDynamicConfiguration<T> oldConfig, SgDynamicConfiguration<T> newConfig);
 }

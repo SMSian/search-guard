@@ -92,11 +92,8 @@ class FeMultiTenancyEnabledFlagValidator extends ConfigModificationValidator<FeM
     private Optional<ValidationError> validateEntryEnabledFlag(
             String configEntryKey, FeMultiTenancyConfig newConfig, FeMultiTenancyConfig currentConfig) {
 
-        if (currentConfig.isEnabled() != newConfig.isEnabled() && anyKibanaIndexExists()) {
-            String msg = String.format(
-                    "Cannot change the value of the 'enabled' flag to '%s'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide.",
-                    newConfig.isEnabled()
-            );
+        if (currentConfig.isEnabled() && (!newConfig.isEnabled()) && anyKibanaIndexExists()) {
+            String msg = "Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team";
             return Optional.of(toValidationError(configEntryKey, msg));
         } else {
             return Optional.empty();

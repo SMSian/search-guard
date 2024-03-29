@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -144,6 +145,8 @@ public class ConfigurationRepository implements ComponentStateProvider {
     private volatile ConfigMap currentConfig;
     private final List<ConfigurationChangeListener> configurationChangedListener;
 
+    private final List<LocalConfigChangeListener> localConfigChangeListeners;
+
     /**
      * ConfigurationLoader for config that will be used by SG. Keeps component state up-to-date.
      * Also adds static configuration to the loaded configuration.
@@ -184,6 +187,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
         this.settings = settings;
         this.clusterService = clusterService;
         this.configurationChangedListener = new ArrayList<>();
+        this.localConfigChangeListeners = Collections.synchronizedList(new ArrayList<>());
         this.privilegedConfigClient = PrivilegedConfigClient.adapt(client);
         this.componentState.setMandatory(true);
         this.mainConfigLoader = new ConfigurationLoader(client, componentState, this, staticSgConfig);
@@ -676,6 +680,11 @@ public class ConfigurationRepository implements ComponentStateProvider {
         configurationChangedListener.add(listener);
     }
 
+    public void subscribeOnChange(LocalConfigChangeListener configChangeListener) {
+        Objects.requireNonNull(configChangeListener, "Local config change listener must not be null");
+        localConfigChangeListeners.add(configChangeListener);
+    }
+
     private synchronized void notifyAboutChanges(ConfigMap configMap) {
         for (ConfigurationChangeListener listener : configurationChangedListener) {
             try {
@@ -683,6 +692,21 @@ public class ConfigurationRepository implements ComponentStateProvider {
                 listener.onChange(configMap);
             } catch (Exception e) {
                 LOGGER.error("{} listener errored: " + e, listener, e);
+                throw ExceptionsHelper.convertToElastic(e);
+            }
+        }
+    }
+
+    private synchronized void notifyAboutLocalChanges(ConfigMap newConfig) {
+        for (LocalConfigChangeListener<?> listener : localConfigChangeListeners) {
+            try {
+                CType configType = listener.getConfigType();
+                LOGGER.debug("Notify {} listener about change configuration with type {}", listener, configType);
+                if (newConfig.get(configType) != null) {
+                    listener.onChange(currentConfig.get(configType), newConfig.get(configType));
+                }
+            } catch (Exception e) {
+                LOGGER.error("Local '{}' listener errored: " + e, listener, e);
                 throw ExceptionsHelper.convertToElastic(e);
             }
         }
@@ -904,7 +928,8 @@ public class ConfigurationRepository implements ComponentStateProvider {
             validationErrors.throwExceptionForPresentErrors();
         }
 
-        IndexRequest indexRequest = new IndexRequest(getEffectiveSearchGuardIndexAndCreateIfNecessary());
+        String indexName = getEffectiveSearchGuardIndexAndCreateIfNecessary();
+        IndexRequest indexRequest = new IndexRequest(indexName);
 
         try {
             String id = ctype.toLCString();
@@ -942,6 +967,13 @@ public class ConfigurationRepository implements ComponentStateProvider {
         }
 
         try {
+            ConfigMap configMap = new ConfigMap.Builder(indexName).with(configInstance).build();
+            notifyAboutLocalChanges(configMap);
+        } catch (Exception e) {
+            throw new ConfigUpdateException("Configuration index was updated; however, the local listeners failed.", e);
+        }
+
+        try {
             ConfigUpdateRequest configUpdateRequest = new ConfigUpdateRequest(CType.lcStringValues().toArray(new String[0]));
 
             ConfigUpdateResponse configUpdateResponse = privilegedConfigClient.execute(ConfigUpdateAction.INSTANCE, configUpdateRequest).actionGet();
@@ -969,6 +1001,8 @@ public class ConfigurationRepository implements ComponentStateProvider {
 
         List<String> configTypesWithConcurrentModifications = new ArrayList<>();
         String searchGuardIndex = getEffectiveSearchGuardIndexAndCreateIfNecessary();
+
+        List<SgDynamicConfiguration<?>> dynamicConfig = new ArrayList<>();
 
         for (Map.Entry<CType<?>, ConfigWithMetadata> entry : configTypeToConfigMap.entrySet()) {
             CType<?> ctype = entry.getKey();
@@ -1006,8 +1040,10 @@ public class ConfigurationRepository implements ComponentStateProvider {
 
                 String id = ctype.toLCString();
 
+                SgDynamicConfiguration<?> config = configInstance.peek();
+                dynamicConfig.add(config);
                 IndexRequest indexRequest = new IndexRequest(searchGuardIndex).id(id).source(id,
-                        XContentHelper.toXContent(configInstance.peek().withoutStatic(), XContentType.JSON, false));
+                        XContentHelper.toXContent(config.withoutStatic(), XContentType.JSON, false));
 
                 if (matchETag != null) {
                     try {
@@ -1105,6 +1141,14 @@ public class ConfigurationRepository implements ComponentStateProvider {
                 }
             } else {
                 LOGGER.info("Index update done:\n" + Strings.toString(bulkResponse));
+
+                try {
+                    ConfigMap.Builder builder = new ConfigMap.Builder("");
+                    dynamicConfig.forEach(builder::with);
+                    notifyAboutLocalChanges(builder.build());
+                } catch (Exception e) {
+                    throw new ConfigUpdateException("Configuration index was updated; however, the local listeners failed.", e);
+                }
 
                 try {
                     ConfigUpdateRequest configUpdateRequest = new ConfigUpdateRequest(CType.lcStringValues().toArray(new String[0]));

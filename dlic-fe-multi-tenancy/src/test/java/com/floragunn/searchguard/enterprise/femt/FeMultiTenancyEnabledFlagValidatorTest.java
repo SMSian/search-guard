@@ -87,7 +87,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig);
         assertThat(validationErrors, hasSize(1));
         assertThat(validationErrors.get(0).getAttribute(), equalTo("_"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"));
 
         //try to enable MT
         configMap = configMapWithConfig(
@@ -98,9 +98,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig);
-        assertThat(validationErrors, hasSize(1));
-        assertThat(validationErrors.get(0).getAttribute(), equalTo("_"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors, hasSize(0));
 
 
         //should compare to default (disabled) configuration
@@ -108,9 +106,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig);
-        assertThat(validationErrors, hasSize(1));
-        assertThat(validationErrors.get(0).getAttribute(), equalTo("_"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors, hasSize(0));
     }
 
     @Test
@@ -230,7 +226,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(1));
         assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"));
 
         //try to enable MT
         configMap = configMapWithConfig(
@@ -242,9 +238,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
-        assertThat(validationErrors, hasSize(1));
-        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors, hasSize(0));
 
 
         //should compare to default (disabled) configuration
@@ -253,9 +247,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
-        assertThat(validationErrors, hasSize(1));
-        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors, hasSize(0));
     }
 
     @Test
@@ -413,7 +405,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(1));
         assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"));
 
         //try to enable MT
         configMap = configMapWithConfig(
@@ -425,9 +417,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
-        assertThat(validationErrors, hasSize(1));
-        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors, hasSize(0));
 
 
         //should compare to default (disabled) configuration
@@ -436,9 +426,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
-        assertThat(validationErrors, hasSize(1));
-        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
-        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'true'. This may result in data loss as there are some Kibana indexes. Please read the multi tenancy migration guide."));
+        assertThat(validationErrors, hasSize(0));
     }
 
     @Test
