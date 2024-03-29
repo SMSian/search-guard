@@ -282,10 +282,10 @@ public class MultitenancyTests {
             try (GenericRestClient client = cluster.getRestClient("kibanaro", "kibanaro")) {
 
                 GenericRestClient.HttpResponse res;
-                Assert.assertEquals(HttpStatus.SC_OK,
+                Assert.assertEquals(HttpStatus.SC_FORBIDDEN, //private tenants are not enabled
                         (res = client.get(".kibana/_doc/6.2.2?pretty", new BasicHeader("sgtenant", "__user__"))).getStatusCode());
-                Assert.assertTrue(res.getBody().contains(".kibana_1"));
-                Assert.assertTrue(res.getBody().contains("15460"));
+//                Assert.assertTrue(res.getBody().contains(".kibana_1"));
+//                Assert.assertTrue(res.getBody().contains("15460"));
             }
         } finally {
             try {
@@ -434,6 +434,12 @@ public class MultitenancyTests {
                 );
 
                 response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
+                assertThat(response.getBodyAsDocNode(), containsValue("error.details.private_tenant_enabled.[0].error", "Unsupported attribute"));
+
+                config = config.without("private_tenant_enabled");
+
+                response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
                 response = adminCertClient.get("/_searchguard/config/frontend_multi_tenancy");
@@ -444,7 +450,7 @@ public class MultitenancyTests {
                 assertThat(config, containsValue("$.content.index", "kibana_index"));
                 assertThat(config, containsValue("$.content.server_user", "kibana_user"));
                 assertThat(config, containsValue("$.content.global_tenant_enabled", true));
-                assertThat(config, containsValue("$.content.private_tenant_enabled", false));
+                assertThat(config, not(containsFieldPointedByJsonPath("$.content", "private_tenant_enabled")));
                 assertThat(config, docNodeSizeEqualTo("$.content.preferred_tenants", 1));
                 assertThat(config, containsValue("$.content.preferred_tenants[0]", "tenant-1"));
 
@@ -455,8 +461,7 @@ public class MultitenancyTests {
 
                 config = DocNode.of(
                         "enabled", true, "index", "kibana_index_v2", "server_user", "kibana_user_v2",
-                        "global_tenant_enabled", false, "private_tenant_enabled", true,
-                        "preferred_tenants", ImmutableList.of()
+                        "global_tenant_enabled", false, "preferred_tenants", ImmutableList.of()
                 );
 
                 response = adminCertClient.putJson("/_searchguard/config/frontend_multi_tenancy", config);
@@ -470,13 +475,12 @@ public class MultitenancyTests {
                 assertThat(config, containsValue("$.content.index", "kibana_index_v2"));
                 assertThat(config, containsValue("$.content.server_user", "kibana_user_v2"));
                 assertThat(config, containsValue("$.content.global_tenant_enabled", false));
-                assertThat(config, containsValue("$.content.private_tenant_enabled", true));
+                assertThat(config, not(containsFieldPointedByJsonPath("$.content", "private_tenant_enabled")));
                 assertThat(config, docNodeSizeEqualTo("$.content.preferred_tenants", 0));
 
                 response = userClient.get("/_searchguard/current_user/tenants");
-                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
-                assertThat(response.getBodyAsDocNode(), not(containsFieldPointedByJsonPath("$.data.tenants", Tenant.GLOBAL_TENANT_ID)));
-                assertThat(response.getBodyAsDocNode(), containsFieldPointedByJsonPath("$.data.tenants", USER_WITH_ACCESS_TO_GLOBAL_TENANT.getName()));
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_UNAUTHORIZED));
+                assertThat(response.getBodyAsDocNode(), containsValue("$.message", "Cannot determine default tenant for current user"));
 
                 config = DocNode.of(
                         "enabled", true, "global_tenant_enabled", true, "preferred_tenants",
@@ -493,7 +497,7 @@ public class MultitenancyTests {
                 assertThat(config, containsValue("$.content.index", "kibana_index_v2"));
                 assertThat(config, containsValue("$.content.server_user", "kibana_user_v2"));
                 assertThat(config, containsValue("$.content.global_tenant_enabled", true));
-                assertThat(config, containsValue("$.content.private_tenant_enabled", true));
+                assertThat(config, not(containsFieldPointedByJsonPath("$.content", "private_tenant_enabled")));
                 assertThat(config, docNodeSizeEqualTo("$.content.preferred_tenants", 1));
                 assertThat(config, containsValue("$.content.preferred_tenants[0]", "tenant-2"));
 
