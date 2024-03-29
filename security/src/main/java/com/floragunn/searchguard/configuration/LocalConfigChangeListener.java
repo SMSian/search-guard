@@ -1,7 +1,9 @@
 package com.floragunn.searchguard.configuration;
 
+import javax.annotation.Nullable;
+
 public interface LocalConfigChangeListener<T> {
     CType<T> getConfigType();
 
-    void onChange(SgDynamicConfiguration<T> oldConfig, SgDynamicConfiguration<T> newConfig);
+    void onChange(@Nullable SgDynamicConfiguration<T> oldConfig, SgDynamicConfiguration<T> newConfig);
 }

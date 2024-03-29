@@ -38,7 +38,6 @@ class ExtendMappingsListener implements LocalConfigChangeListener<FeMultiTenancy
         boolean newEnabledValue = newConfig.getCEntry("default").isEnabled();
         log.debug("MT enabled flag in the new configuration '{}'", newEnabledValue);
         if(newEnabledValue) {
-
             log.info("The field sg_tenant will be added to mappings associated with frontend related indices");
         }
     }
