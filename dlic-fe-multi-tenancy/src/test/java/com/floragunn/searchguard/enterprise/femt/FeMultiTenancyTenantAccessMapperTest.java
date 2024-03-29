@@ -53,6 +53,7 @@ public class FeMultiTenancyTenantAccessMapperTest {
 
     @Before
     public void setUp() throws Exception {
+        when(multiTenancyConfigurationProvider.isMultiTenancyEnabled()).thenReturn(true);
         when(multiTenancyConfigurationProvider.isGlobalTenantEnabled()).thenReturn(true);
         when(multiTenancyConfigurationProvider.isPrivateTenantEnabled()).thenReturn(true);
     }

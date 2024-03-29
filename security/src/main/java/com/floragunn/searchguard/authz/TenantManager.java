@@ -25,9 +25,9 @@ public class TenantManager {
 
     public boolean isTenantHeaderValid(String tenant) {
         if (Tenant.GLOBAL_TENANT_ID.equals(tenant)) {
-            return multiTenancyConfigurationProvider.isGlobalTenantEnabled();
+            return ! multiTenancyConfigurationProvider.isMultiTenancyEnabled() || multiTenancyConfigurationProvider.isGlobalTenantEnabled();
         } else if (USER_TENANT.equals(tenant)) {
-            return multiTenancyConfigurationProvider.isPrivateTenantEnabled();
+            return ! multiTenancyConfigurationProvider.isMultiTenancyEnabled() || multiTenancyConfigurationProvider.isPrivateTenantEnabled();
         } else {
             return configuredTenants.contains(tenant);
         }
