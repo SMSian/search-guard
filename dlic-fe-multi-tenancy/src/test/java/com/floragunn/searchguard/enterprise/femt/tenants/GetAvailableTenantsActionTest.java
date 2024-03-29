@@ -339,15 +339,15 @@ public class GetAvailableTenantsActionTest {
             cluster.callAndRestoreConfig(FeMultiTenancyConfig.TYPE, () -> {
 
                 HttpResponse getConfigResponse = adminClient.get("/_searchguard/config/fe_multi_tenancy");
-                assertThat(getConfigResponse.getStatusCode(), equalTo(SC_OK));
+                assertThat(getConfigResponse.getBody(), getConfigResponse.getStatusCode(), equalTo(SC_OK));
                 DocNode config = getConfigResponse.getBodyAsDocNode().getAsNode("content");
                 config = config.with("global_tenant_enabled", false);
                 HttpResponse putConfigResponse = adminClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
-                assertThat(putConfigResponse.getStatusCode(), equalTo(SC_OK));
+                assertThat(putConfigResponse.getBody(), putConfigResponse.getStatusCode(), equalTo(SC_OK));
 
                 HttpResponse getTenantsResponse = client.get("/_searchguard/current_user/tenants");
                 log.debug("Response status '{}' and body '{}'.", getTenantsResponse.getStatusCode(), getTenantsResponse.getBody());
-                assertThat(getTenantsResponse.getStatusCode(), equalTo(SC_UNAUTHORIZED));
+                assertThat(getTenantsResponse.getBody(), getTenantsResponse.getStatusCode(), equalTo(SC_UNAUTHORIZED));
                 assertThat(getTenantsResponse.getBodyAsDocNode(), containsValue("$.message", "Cannot determine default tenant for current user"));
 
 

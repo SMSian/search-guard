@@ -131,8 +131,7 @@ public class FeMultiTenancyConfig implements PatchableDocument<FeMultiTenancyCon
     public String toString() {
         return "FeMultiTenancyConfig [source=" + source + ", enabled=" + enabled +
                 ", index=" + index + ", serverUsername=" + serverUsername +
-                ", globalTenantEnabled=" + globalTenantEnabled + ", privateTenantEnabled=" + privateTenantEnabled +
-                ", preferredTenants=(" + String.join(", ", preferredTenants) + ")]";
+                ", globalTenantEnabled=" + globalTenantEnabled + ", preferredTenants=(" + String.join(", ", preferredTenants) + ")]";
     }
 
     @Override
