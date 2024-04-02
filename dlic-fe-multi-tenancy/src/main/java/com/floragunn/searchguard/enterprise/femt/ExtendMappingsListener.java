@@ -3,21 +3,24 @@ package com.floragunn.searchguard.enterprise.femt;
 import com.floragunn.searchguard.configuration.CType;
 import com.floragunn.searchguard.configuration.LocalConfigChangeListener;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
+import com.floragunn.searchguard.enterprise.femt.tenants.TenantIndexMappingsExtender;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.elasticsearch.client.internal.Client;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 
 class ExtendMappingsListener implements LocalConfigChangeListener<FeMultiTenancyConfig> {
 
     private static final Logger log = LogManager.getLogger(ExtendMappingsListener.class);
 
-    private final Client client;
+    private final TenantIndexMappingsExtender indexMappingsExtender;
+    private final ExecutorService executor;
 
-    public ExtendMappingsListener(Client localClient) {
-        this.client = Objects.requireNonNull(localClient, "Local client is required");
+    public ExtendMappingsListener(TenantIndexMappingsExtender indexMappingsExtender, ExecutorService executor) {
+        this.indexMappingsExtender = Objects.requireNonNull(indexMappingsExtender, "Tenant index mapping extender is required");
+        this.executor = Objects.requireNonNull(executor, "Executor is required");
     }
 
     @Override
@@ -31,14 +34,19 @@ class ExtendMappingsListener implements LocalConfigChangeListener<FeMultiTenancy
             .map(dynamic -> dynamic.getCEntry("default")) //
             .map(FeMultiTenancyConfig::isEnabled) //
             .orElse(false);
-        if(previouslyEnabled) {
+        if (previouslyEnabled) {
             log.debug("MT is already enabled, nothing to be done");
             return;
         }
         boolean newEnabledValue = newConfig.getCEntry("default").isEnabled();
         log.debug("MT enabled flag in the new configuration '{}'", newEnabledValue);
-        if(newEnabledValue) {
-            log.info("The field sg_tenant will be added to mappings associated with frontend related indices");
+        if (newEnabledValue) {
+            extendMappings();
         }
+    }
+
+    private void extendMappings() {
+        log.info("The field sg_tenant will be added to mappings associated with frontend related indices");
+        executor.submit(indexMappingsExtender::extendTenantsIndexMappings);
     }
 }

@@ -16,6 +16,7 @@ import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.TermsQueryBuilder;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
@@ -114,10 +115,7 @@ public class TenantRepository {
     private static SearchRequest buildTenantsExistQuery(Map<String, String> internalNameToNameMap) {
         SearchRequest searchRequest = new SearchRequest(FRONTEND_MULTI_TENANCY_ALIASES);
         searchRequest.indicesOptions(IndicesOptions.lenientExpandOpen());
-        BoolQueryBuilder query = QueryBuilders.boolQuery() //
-                .should(QueryBuilders.termsQuery(SG_TENANT_FIELD, internalNameToNameMap.keySet().toArray(String[]::new))) //
-                .should(QueryBuilders.boolQuery().mustNot(QueryBuilders.existsQuery(SG_TENANT_FIELD))) //
-                .minimumShouldMatch(1);
+        TermsQueryBuilder query = QueryBuilders.termsQuery(SG_TENANT_FIELD, internalNameToNameMap.keySet().toArray(String[]::new));
         SearchSourceBuilder sources = SearchSourceBuilder.searchSource() //
             .size(0) //
             .query(query) //

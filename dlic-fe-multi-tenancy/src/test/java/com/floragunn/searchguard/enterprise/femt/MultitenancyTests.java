@@ -14,8 +14,13 @@
 
 package com.floragunn.searchguard.enterprise.femt;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 import co.elastic.clients.elasticsearch.core.MgetRequest;
 import co.elastic.clients.elasticsearch.core.MgetResponse;
@@ -28,13 +33,17 @@ import org.apache.http.HttpStatus;
 import org.apache.http.message.BasicHeader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
+import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsRequest;
+import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.support.WriteRequest.RefreshPolicy;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.internal.Client;
+import org.elasticsearch.cluster.metadata.MappingMetadata;
 import org.elasticsearch.xcontent.XContentType;
 
 import com.floragunn.searchguard.test.GenericRestClient;
@@ -51,6 +60,7 @@ import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.contains
 import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.docNodeSizeEqualTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.not;
 
 public class MultitenancyTests {
@@ -589,6 +599,51 @@ public class MultitenancyTests {
                 response = adminCertClient.putJson("/_searchguard/config", bulkBody);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
+                return null;
+            });
+        }
+    }
+
+    @Test
+    public void shouldExtendsMappingsWhenMultiTenancyIsEnabled() throws Exception {
+        try (GenericRestClient adminCertClient = cluster.getAdminCertRestClient()) {
+            cluster.callAndRestoreConfig(FeMultiTenancyConfig.TYPE, () -> {
+                GenericRestClient.HttpResponse response = adminCertClient.get("/_searchguard/config/fe_multi_tenancy");
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+                Client client = cluster.getInternalNodeClient();
+                List<String> indices = Arrays
+                    .asList(".kibana", ".kibana_analytics", ".kibana_ingest", ".kibana_security_solution", ".kibana_alerting_cases");
+                // disable MT
+                DocNode config = DocNode.of("enabled", false);
+                response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+                // create all frontend indices
+                for(String indexName : indices) {
+                    response = adminCertClient.put("/" + indexName);
+                    assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+                }
+                config = DocNode.of("enabled", true);
+
+                // enable MT
+                response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
+
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+                Awaitility.await("frontend indices mappings extension").until(() -> {
+                    GetMappingsRequest request = new GetMappingsRequest().indices(indices.toArray(String[]::new));
+                    GetMappingsResponse mappingsResponse = client.admin().indices().getMappings(request).actionGet();
+                    Map<String, MappingMetadata> mappings = mappingsResponse.getMappings();
+                    return indices.stream() //
+                        .map(indexName -> mappings.get(indexName)) //
+                        .filter(Objects::nonNull) //
+                        .map(metadata -> metadata.sourceAsMap()) //
+                        .map(mappingsMap -> (Map<String, Object>) mappingsMap.get("properties")) //
+                        .filter(Objects::nonNull) //
+                        .map(mappingProperties -> (Map<String, Object>) mappingProperties.get("sg_tenant")) //
+                        .filter(Objects::nonNull) //
+                        .map(fieldMappings -> fieldMappings.get("type")) //
+                        .filter(fieldType -> "keyword".equals(fieldType)) //
+                        .count() == indices.size();
+                });
                 return null;
             });
         }
