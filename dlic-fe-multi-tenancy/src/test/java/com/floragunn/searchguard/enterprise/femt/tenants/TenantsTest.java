@@ -19,6 +19,7 @@ import com.floragunn.fluent.collections.ImmutableMap;
 import com.floragunn.searchguard.authz.TenantManager;
 import com.floragunn.searchguard.authz.config.Tenant;
 import com.floragunn.searchguard.enterprise.femt.FeMultiTenancyConfig;
+import com.floragunn.searchguard.support.PrivilegedConfigClient;
 import com.floragunn.searchguard.test.GenericRestClient;
 import com.floragunn.searchguard.test.GenericRestClient.HttpResponse;
 import com.floragunn.searchguard.test.TestSgConfig;
@@ -32,18 +33,20 @@ import org.apache.http.message.BasicHeader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.DocWriteResponse;
+import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
+import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsRequest;
+import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsResponse;
 import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.internal.Client;
+import org.elasticsearch.client.internal.node.NodeClient;
+import org.elasticsearch.cluster.metadata.MappingMetadata;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.core.TimeValue;
-import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.index.reindex.BulkByScrollResponse;
-import org.elasticsearch.index.reindex.DeleteByQueryAction;
-import org.elasticsearch.index.reindex.DeleteByQueryRequest;
 import org.junit.After;
-import org.junit.BeforeClass;
+import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 
@@ -60,13 +63,16 @@ import static org.apache.http.HttpStatus.SC_UNAUTHORIZED;
 import static org.elasticsearch.action.support.WriteRequest.RefreshPolicy.IMMEDIATE;
 import static org.elasticsearch.rest.RestStatus.CREATED;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.aMapWithSize;
+import static org.hamcrest.Matchers.anEmptyMap;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 
-public class GetAvailableTenantsActionTest {
+public class TenantsTest {
 
-    private static final Logger log = LogManager.getLogger(GetAvailableTenantsActionTest.class);
+    private static final Logger log = LogManager.getLogger(TenantsTest.class);
 
     private static final String FRONTEND_INDEX = ".kibana";
     private static final TestSgConfig.Tenant HR_TENANT = new TestSgConfig.Tenant("hr_tenant");
@@ -79,6 +85,8 @@ public class GetAvailableTenantsActionTest {
     private static final TestSgConfig.Tenant IT_TENANT = new TestSgConfig.Tenant("information_technology_tenant");
     private static final TestSgConfig.Tenant PR_TENANT = new TestSgConfig.Tenant("public_relations_tenant");
     private static final TestSgConfig.Tenant QA_TENANT = new TestSgConfig.Tenant("quality_assurance_tenant");
+
+    private TenantIndexMappingsExtender tenantIndexMappingsExtender;
 
     private static final ImmutableList<TestSgConfig.Tenant> ALL_DEFINED_TENANTS = ImmutableList.of(HR_TENANT, FINANCE_TENANT,
         SALES_TENANT, OPERATIONS_TENANT, RD_TENANT, BD_TENANT, LEGAL_TENANT, IT_TENANT, PR_TENANT, QA_TENANT);
@@ -118,7 +126,6 @@ public class GetAvailableTenantsActionTest {
                     .tenantPermission("*")
                     .on(Tenant.GLOBAL_TENANT_ID));
 
-
     @ClassRule
     public static LocalCluster cluster = new LocalCluster.Builder().sslEnabled() //
         .nodeSettings("action.destructive_requires_name", false, "searchguard.unsupported.single_index_mt_enabled", true) //
@@ -132,8 +139,8 @@ public class GetAvailableTenantsActionTest {
             IT_TENANT, PR_TENANT, QA_TENANT) //
         .build();
 
-    @BeforeClass
-    public static void createIndex() {
+    @Before
+    public void setUpIndex() {
         Client client = cluster.getInternalNodeClient();
         DocNode indexMappings = DocNode.of("_doc", DocNode.of("properties", DocNode.of("sg_tenant", DocNode.of("type", "keyword"))));
         CreateIndexRequest request = new CreateIndexRequest(FRONTEND_INDEX) //
@@ -143,21 +150,20 @@ public class GetAvailableTenantsActionTest {
         assertThat(response.isAcknowledged(), equalTo(true));
     }
 
+    @Before
+    public void setUpTestedDependencies() {
+        tenantIndexMappingsExtender = new TenantIndexMappingsExtender(
+                new TenantRepository(PrivilegedConfigClient.adapt(cluster.getInjectable(NodeClient.class)))
+        );
+    }
+
     @After
     public void clearIndices() {
-        Client client = cluster.getInternalNodeClient();
-        DeleteByQueryRequest request = new DeleteByQueryRequest(FRONTEND_INDEX);
-        request.setQuery(QueryBuilders.matchAllQuery());
-        request.setRefresh(true);
-        request.setBatchSize(100);
-        request.setScroll(TimeValue.timeValueMinutes(1));
-        BulkByScrollResponse response = client.execute(DeleteByQueryAction.INSTANCE, request).actionGet();
-        assertThat(response.getSearchFailures(), empty());
-        assertThat(response.getBulkFailures(), empty());
+        removeKibanaRelatedIndices();
     }
 
     @Test
-    public void shouldFindAccessibleTenantsForSingleTenantUser() throws Exception {
+    public void getAvailableTenantsAction_shouldFindAccessibleTenantsForSingleTenantUser() throws Exception {
         createTenants(FRONTEND_INDEX, ALL_DEFINED_TENANTS.map(TestSgConfig.Tenant::getName).toArray(String[]::new));
         Header tenantHeader = new BasicHeader("sg_tenant", "test_tenant");
         try(GenericRestClient client = cluster.getRestClient(USER_SINGLE_TENANT, tenantHeader)) {
@@ -188,7 +194,7 @@ public class GetAvailableTenantsActionTest {
     }
 
     @Test
-    public void shouldFindAccessibleTenantsForUserAllowedToReadEachTenantData() throws Exception {
+    public void getAvailableTenantsAction_shouldFindAccessibleTenantsForUserAllowedToReadEachTenantData() throws Exception {
         String[] tenantsToBeCreated = ALL_DEFINED_TENANTS.map(TestSgConfig.Tenant::getName) //
             .with(USER_EACH_TENANT_READ.getName()) //
             .toArray(String[]::new);
@@ -223,7 +229,7 @@ public class GetAvailableTenantsActionTest {
     }
 
     @Test
-    public void shouldFindAccessibleTenantsForUserAllowedToWriteEachTenantData() throws Exception {
+    public void getAvailableTenantsAction_shouldFindAccessibleTenantsForUserAllowedToWriteEachTenantData() throws Exception {
         String[] tenantsToBeCreated = ALL_DEFINED_TENANTS.map(TestSgConfig.Tenant::getName) //
             .with(USER_EACH_TENANT_WRITE.getName()) //
             .toArray(String[]::new);
@@ -254,7 +260,7 @@ public class GetAvailableTenantsActionTest {
     }
 
     @Test
-    public void shouldFindAccessibleTenantsWhichDoesNotExist() throws Exception {
+    public void getAvailableTenantsAction_shouldFindAccessibleTenantsWhichDoesNotExist() throws Exception {
         String[] accessibleTenantsNames = ALL_DEFINED_TENANTS.map(TestSgConfig.Tenant::getName) //
             .toArray(String[]::new);
         try(GenericRestClient client = cluster.getRestClient(USER_EACH_TENANT_WRITE)) {
@@ -283,7 +289,7 @@ public class GetAvailableTenantsActionTest {
     }
 
     @Test
-    public void shouldReturnInformationIfTenantIsAccessibleAndExist() throws Exception {
+    public void getAvailableTenantsAction_shouldReturnInformationIfTenantIsAccessibleAndExist() throws Exception {
         createTenants(FRONTEND_INDEX, HR_TENANT.getName(), FINANCE_TENANT.getName(), PR_TENANT.getName(), QA_TENANT.getName());
         try(GenericRestClient client = cluster.getRestClient(USER_SOME_TENANT_ACCESS)) {
 
@@ -318,7 +324,7 @@ public class GetAvailableTenantsActionTest {
     }
 
     @Test
-    public void shouldNotBeAccessibleForFrontendServerUser() throws Exception {
+    public void getAvailableTenantsAction_shouldNotBeAccessibleForFrontendServerUser() throws Exception {
         try(GenericRestClient client = cluster.getRestClient(FRONTEND_SERVER_USER)) {
 
             HttpResponse response = client.get("/_searchguard/current_user/tenants");
@@ -329,7 +335,7 @@ public class GetAvailableTenantsActionTest {
     }
 
     @Test
-    public void shouldReturnUnauthorized_whenUserDoesNotHaveAccessToAnyTenantAndDefaultTenantCannotBeDetermined() throws Exception {
+    public void getAvailableTenantsAction_shouldReturnUnauthorized_whenUserDoesNotHaveAccessToAnyTenantAndDefaultTenantCannotBeDetermined() throws Exception {
         try(GenericRestClient client = cluster.getRestClient(USER_WITH_ACCESS_ONLY_TO_GLOBAL_TENANT); GenericRestClient adminClient = cluster.getAdminCertRestClient()) {
 
             HttpResponse response = client.get("/_searchguard/current_user/tenants");
@@ -360,7 +366,7 @@ public class GetAvailableTenantsActionTest {
     public void shouldDetectThatGlobalTenantExist() throws Exception {
         createTenants(FRONTEND_INDEX, Tenant.GLOBAL_TENANT_ID);
         Header tenantHeader = new BasicHeader("sg_tenant", "test_tenant");
-        try(GenericRestClient client = cluster.getRestClient(USER_SINGLE_TENANT, tenantHeader)) {
+        try (GenericRestClient client = cluster.getRestClient(USER_SINGLE_TENANT, tenantHeader)) {
 
             HttpResponse response = client.get("/_searchguard/current_user/tenants");
 
@@ -371,6 +377,61 @@ public class GetAvailableTenantsActionTest {
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.read_access", true));
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.write_access", true));
             assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.exists", true));
+        }
+    }
+
+    @Test
+    public void tenantIndexMappingsExtender_shouldAddSgTenantFieldToMappings() {
+        //there are no kibana indices
+        removeKibanaRelatedIndices();
+
+        try {
+            tenantIndexMappingsExtender.extendTenantsIndexMappings();
+        } catch (Exception e) {
+            assertThat("No exception should be thrown", false);
+        }
+
+        GetMappingsResponse getMappingsResponse = getKibanaIndicesMappings();
+        assertThat(getMappingsResponse.getMappings(), anEmptyMap());
+
+        //there are kibana indices
+        createKibanaIndicesAndAliases();
+
+        tenantIndexMappingsExtender.extendTenantsIndexMappings();
+        getMappingsResponse = getKibanaIndicesMappings();
+        assertThat(getMappingsResponse.getMappings(), aMapWithSize(5));
+        assertThat(
+                getMappingsResponse.getMappings().keySet(),
+                containsInAnyOrder(".kibana_1.2.3", ".kibana_analytics_1.2.3", ".kibana_ingest_1.2.3",
+                        ".kibana_security_solution_1.2.3", ".kibana_alerting_cases_1.2.3"
+                )
+        );
+        for (MappingMetadata indexMapping : getMappingsResponse.getMappings().values()) {
+            DocNode mappings = DocNode.wrap(indexMapping.sourceAsMap());
+            assertThat(mappings, hasKey("properties"));
+            assertThat(mappings.getAsNode("properties"), hasKey("sg_tenant"));
+            assertThat(mappings.getAsNode("properties").getAsNode("sg_tenant"), equalTo(DocNode.of("type", "keyword")));
+        }
+
+        //mappings already extended
+        try {
+            tenantIndexMappingsExtender.extendTenantsIndexMappings();
+        } catch (Exception e) {
+            assertThat("No exception should be thrown", false);
+        }
+        getMappingsResponse = getKibanaIndicesMappings();
+        assertThat(getMappingsResponse.getMappings(), aMapWithSize(5));
+        assertThat(
+                getMappingsResponse.getMappings().keySet(),
+                containsInAnyOrder(".kibana_1.2.3", ".kibana_analytics_1.2.3", ".kibana_ingest_1.2.3",
+                        ".kibana_security_solution_1.2.3", ".kibana_alerting_cases_1.2.3"
+                )
+        );
+        for (MappingMetadata indexMapping : getMappingsResponse.getMappings().values()) {
+            DocNode mappings = DocNode.wrap(indexMapping.sourceAsMap());
+            assertThat(mappings, hasKey("properties"));
+            assertThat(mappings.getAsNode("properties"), hasKey("sg_tenant"));
+            assertThat(mappings.getAsNode("properties").getAsNode("sg_tenant"), equalTo(DocNode.of("type", "keyword")));
         }
     }
 
@@ -388,6 +449,30 @@ public class GetAvailableTenantsActionTest {
             DocWriteResponse response = client.index(indexRequest).actionGet();
             assertThat(response.status(), equalTo(CREATED));
         }
+    }
+
+    private void removeKibanaRelatedIndices() {
+        Client client = cluster.getInternalNodeClient();
+        AcknowledgedResponse deleteResponse = client.admin().indices().delete(new DeleteIndexRequest(".kibana*")).actionGet();
+        assertThat(deleteResponse.isAcknowledged(), equalTo(true));
+    }
+
+    private GetMappingsResponse getKibanaIndicesMappings() {
+        Client client = cluster.getInternalNodeClient();
+        return client.admin().indices().getMappings(new GetMappingsRequest().indices(".kibana*")).actionGet();
+    }
+
+    private void createKibanaIndicesAndAliases() {
+        Client client = cluster.getInternalNodeClient();
+        IndicesAliasesRequest addAliasesRequest = new IndicesAliasesRequest();
+        for (String alias : TenantRepository.FRONTEND_MULTI_TENANCY_ALIASES) {
+            String indexName = alias + "_1.2.3";
+            CreateIndexResponse createIndexResponse = client.admin().indices().create(new CreateIndexRequest(indexName)).actionGet();
+            assertThat(createIndexResponse.isAcknowledged(), equalTo(true));
+            addAliasesRequest.addAliasAction(IndicesAliasesRequest.AliasActions.add().alias(alias).index(indexName));
+        }
+        AcknowledgedResponse addAliasesResponse = client.admin().indices().aliases(addAliasesRequest).actionGet();
+        assertThat(addAliasesResponse.isAcknowledged(), equalTo(true));
     }
 
 }

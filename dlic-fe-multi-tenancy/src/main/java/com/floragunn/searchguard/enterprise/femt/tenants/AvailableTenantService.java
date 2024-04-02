@@ -10,7 +10,6 @@ import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.threadpool.ThreadPool;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -23,15 +22,15 @@ public class AvailableTenantService {
     private final MultiTenancyConfigurationProvider configProvider;
     private final AuthorizationService authorizationService;
     private final ThreadPool threadPool;
-    private final TenantAvailabilityRepository tenantRepository;
+    private final TenantRepository tenantRepository;
     private final DefaultTenantSelector defaultTenantSelector;
 
     public AvailableTenantService(MultiTenancyConfigurationProvider configProvider, AuthorizationService authorizationService,
-        ThreadPool threadPool, TenantAvailabilityRepository tenantRepository) {
+        ThreadPool threadPool, TenantRepository tenantRepository) {
         this.configProvider = requireNonNull(configProvider, "Multi tenancy config provider is required");
         this.authorizationService = requireNonNull(authorizationService, "Authorization service is required");
         this.threadPool = requireNonNull(threadPool, "Thread pool is required");
-        this.tenantRepository = requireNonNull(tenantRepository, "Tenant availability repository is required");
+        this.tenantRepository = requireNonNull(tenantRepository, "Tenant repository is required");
         this.defaultTenantSelector = new DefaultTenantSelector();
     }
 

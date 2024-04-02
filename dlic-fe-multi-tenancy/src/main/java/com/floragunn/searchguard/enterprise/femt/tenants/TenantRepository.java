@@ -1,5 +1,6 @@
 package com.floragunn.searchguard.enterprise.femt.tenants;
 
+import com.floragunn.codova.documents.DocNode;
 import com.floragunn.fluent.collections.ImmutableSet;
 import com.floragunn.searchguard.authz.TenantManager;
 import com.floragunn.searchguard.authz.config.Tenant;
@@ -8,6 +9,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.IndicesOptions;
@@ -29,17 +31,17 @@ import java.util.Set;
 
 import static com.floragunn.searchguard.enterprise.femt.RequestResponseTenantData.SG_TENANT_FIELD;
 
-public class TenantAvailabilityRepository {
+public class TenantRepository {
 
-    private static final Logger log = LogManager.getLogger(TenantAvailabilityRepository.class);
+    private static final Logger log = LogManager.getLogger(TenantRepository.class);
     public static final String AGGREGATION_NAME = "documents_per_tenant";
-    public static final String MAIN_FRONTEND_INDEX = ".kibana";
-    public static final String[] FRONTEND_MULTI_TENANCY_INDICES =
-        { MAIN_FRONTEND_INDEX, ".kibana_analytics", ".kibana_ingest", ".kibana_security_solution", ".kibana_alerting_cases" };
+    public static final String MAIN_FRONTEND_INDEX_ALIAS = ".kibana";
+    public static final String[] FRONTEND_MULTI_TENANCY_ALIASES =
+        { MAIN_FRONTEND_INDEX_ALIAS, ".kibana_analytics", ".kibana_ingest", ".kibana_security_solution", ".kibana_alerting_cases" };
 
     private final PrivilegedConfigClient client;
 
-    public TenantAvailabilityRepository(PrivilegedConfigClient client) {
+    public TenantRepository(PrivilegedConfigClient client) {
         this.client = Objects.requireNonNull(client, "Config client is required");
     }
 
@@ -59,7 +61,8 @@ public class TenantAvailabilityRepository {
 
     private boolean checkIfGlobalTenantExists() {
         try {
-            GetResponse globalTenantDefaultSpaceResponse = client.get(new GetRequest(MAIN_FRONTEND_INDEX, "space:default")).actionGet();
+            GetRequest request = new GetRequest(MAIN_FRONTEND_INDEX_ALIAS, "space:default");
+            GetResponse globalTenantDefaultSpaceResponse = client.get(request).actionGet();
             return globalTenantDefaultSpaceResponse.isExists();
         } catch (IndexNotFoundException ex) {
             log.debug("Main front-end index does not exist", ex);
@@ -99,8 +102,17 @@ public class TenantAvailabilityRepository {
         return existingTenants;
     }
 
+    void extendTenantsIndexMappings(DocNode mappings) {
+        mappings = mappings.hasNonNull("properties")? mappings : DocNode.of("properties", mappings);
+        PutMappingRequest putMappingRequest = new PutMappingRequest(FRONTEND_MULTI_TENANCY_ALIASES)
+                .source(mappings);
+
+        client.admin().indices().putMapping(putMappingRequest)
+                .actionGet();
+    }
+
     private static SearchRequest buildTenantsExistQuery(Map<String, String> internalNameToNameMap) {
-        SearchRequest searchRequest = new SearchRequest(FRONTEND_MULTI_TENANCY_INDICES);
+        SearchRequest searchRequest = new SearchRequest(FRONTEND_MULTI_TENANCY_ALIASES);
         searchRequest.indicesOptions(IndicesOptions.lenientExpandOpen());
         BoolQueryBuilder query = QueryBuilders.boolQuery() //
                 .should(QueryBuilders.termsQuery(SG_TENANT_FIELD, internalNameToNameMap.keySet().toArray(String[]::new))) //
