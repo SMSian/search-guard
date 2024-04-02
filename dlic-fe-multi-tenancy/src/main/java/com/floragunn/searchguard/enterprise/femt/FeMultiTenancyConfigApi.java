@@ -20,8 +20,6 @@ package com.floragunn.searchguard.enterprise.femt;
 import com.floragunn.fluent.collections.ImmutableList;
 import com.floragunn.searchguard.enterprise.femt.tenants.GetAvailableTenantsAction;
 import com.floragunn.searchsupport.action.StandardRequests;
-import org.elasticsearch.action.ActionRequest;
-import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.plugins.ActionPlugin.ActionHandler;
 

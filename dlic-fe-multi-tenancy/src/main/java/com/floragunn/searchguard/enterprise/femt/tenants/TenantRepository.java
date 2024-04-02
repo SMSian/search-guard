@@ -1,17 +1,18 @@
 package com.floragunn.searchguard.enterprise.femt.tenants;
 
+import com.floragunn.codova.documents.DocNode;
 import com.floragunn.fluent.collections.ImmutableSet;
 import com.floragunn.searchguard.authz.TenantManager;
 import com.floragunn.searchguard.support.PrivilegedConfigClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
-import org.elasticsearch.search.aggregations.InternalAggregations;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms.Bucket;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -25,16 +26,16 @@ import java.util.Set;
 
 import static com.floragunn.searchguard.enterprise.femt.RequestResponseTenantData.SG_TENANT_FIELD;
 
-public class TenantAvailabilityRepository {
+public class TenantRepository {
 
-    private static final Logger log = LogManager.getLogger(TenantAvailabilityRepository.class);
+    private static final Logger log = LogManager.getLogger(TenantRepository.class);
     public static final String AGGREGATION_NAME = "documents_per_tenant";
-    public static final String[] FRONTEND_MULTI_TENANCY_INDICES =
+    public static final String[] FRONTEND_MULTI_TENANCY_ALIASES =
         { ".kibana", ".kibana_analytics", ".kibana_ingest", ".kibana_security_solution", ".kibana_alerting_cases" };
 
     private final PrivilegedConfigClient client;
 
-    public TenantAvailabilityRepository(PrivilegedConfigClient client) {
+    public TenantRepository(PrivilegedConfigClient client) {
         this.client = Objects.requireNonNull(client, "Config client is required");
     }
 
@@ -74,8 +75,17 @@ public class TenantAvailabilityRepository {
         return ImmutableSet.of(existingTenants);
     }
 
+    void extendTenantsIndexMappings(DocNode mappings) {
+        mappings = mappings.hasNonNull("properties")? mappings : DocNode.of("properties", mappings);
+        PutMappingRequest putMappingRequest = new PutMappingRequest(FRONTEND_MULTI_TENANCY_ALIASES)
+                .source(mappings);
+
+        client.admin().indices().putMapping(putMappingRequest)
+                .actionGet();
+    }
+
     private static SearchRequest buildTenantsExistQuery(Map<String, String> internalNameToNameMap) {
-        SearchRequest searchRequest = new SearchRequest(FRONTEND_MULTI_TENANCY_INDICES);
+        SearchRequest searchRequest = new SearchRequest(FRONTEND_MULTI_TENANCY_ALIASES);
         searchRequest.indicesOptions(IndicesOptions.lenientExpandOpen());
         SearchSourceBuilder sources = SearchSourceBuilder.searchSource() //
             .size(0) //

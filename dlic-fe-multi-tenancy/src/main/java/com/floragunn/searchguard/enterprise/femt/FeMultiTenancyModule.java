@@ -33,7 +33,7 @@ import com.floragunn.searchguard.configuration.validation.ConfigModificationVali
 import com.floragunn.searchguard.enterprise.femt.datamigration880.rest.DataMigrationApi;
 import com.floragunn.searchguard.enterprise.femt.request.handler.RequestHandlerFactory;
 import com.floragunn.searchguard.enterprise.femt.tenants.AvailableTenantService;
-import com.floragunn.searchguard.enterprise.femt.tenants.TenantAvailabilityRepository;
+import com.floragunn.searchguard.enterprise.femt.tenants.TenantRepository;
 import com.floragunn.searchguard.support.PrivilegedConfigClient;
 import com.floragunn.searchsupport.StaticSettings;
 import org.apache.logging.log4j.LogManager;
@@ -180,9 +180,9 @@ public class FeMultiTenancyModule implements SearchGuardModule, ComponentStatePr
             }
         });
 
-        var tenantAvailabilityRepository = new TenantAvailabilityRepository(PrivilegedConfigClient.adapt(baseDependencies.getLocalClient()));
+        var tenantRepository = new TenantRepository(PrivilegedConfigClient.adapt(baseDependencies.getLocalClient()));
         var availableTenantService = new AvailableTenantService(feMultiTenancyConfigurationProvider,
-            baseDependencies.getAuthorizationService(), threadPool, tenantAvailabilityRepository);
+            baseDependencies.getAuthorizationService(), threadPool, tenantRepository);
         return Arrays.asList(feMultiTenancyConfigurationProvider, tenantAccessMapper, availableTenantService);
     }
 
