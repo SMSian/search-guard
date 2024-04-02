@@ -356,11 +356,36 @@ public class GetAvailableTenantsActionTest {
         }
     }
 
+    @Test
+    public void shouldDetectThatGlobalTenantExist() throws Exception {
+        createTenants(FRONTEND_INDEX, Tenant.GLOBAL_TENANT_ID);
+        Header tenantHeader = new BasicHeader("sg_tenant", "test_tenant");
+        try(GenericRestClient client = cluster.getRestClient(USER_SINGLE_TENANT, tenantHeader)) {
+
+            HttpResponse response = client.get("/_searchguard/current_user/tenants");
+
+            log.debug("Response status '{}' and body '{}'.", response.getStatusCode(), response.getBody());
+            assertThat(response.getStatusCode(), equalTo(SC_OK));
+            DocNode body = response.getBodyAsDocNode();
+            // user with role SGS_KIBANA_USER has write access to global tenant
+            assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.read_access", true));
+            assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.write_access", true));
+            assertThat(body, containsValue("$.data.tenants.SGS_GLOBAL_TENANT.exists", true));
+        }
+    }
+
     public void createTenants(String indexName, String...tenantNames) {
         Client client = cluster.getInternalNodeClient();
         for(String currentTenant : tenantNames) {
-            ImmutableMap<String, ?> source = ImmutableMap.of("sg_tenant", TenantManager.toInternalTenantName(currentTenant));
-            DocWriteResponse response = client.index(new IndexRequest(indexName).source(source).setRefreshPolicy(IMMEDIATE)).actionGet();
+            ImmutableMap<String, String> source = ImmutableMap.of( "type", "space");
+            String spaceId = "space:default";
+            if(!Tenant.GLOBAL_TENANT_ID.equals(currentTenant)) {
+                String internal = TenantManager.toInternalTenantName(currentTenant);
+                source = source.with("sg_tenant", internal);
+                spaceId = spaceId + "__sg_ten__" + internal;
+            }
+            IndexRequest indexRequest = new IndexRequest(indexName).id(spaceId).source(source).setRefreshPolicy(IMMEDIATE);
+            DocWriteResponse response = client.index(indexRequest).actionGet();
             assertThat(response.status(), equalTo(CREATED));
         }
     }

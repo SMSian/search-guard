@@ -701,7 +701,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
         for (LocalConfigChangeListener<?> listener : localConfigChangeListeners) {
             try {
                 CType configType = listener.getConfigType();
-                LOGGER.debug("Notify {} listener about change configuration with type {}", listener, configType);
+                LOGGER.debug("Notify local {} listener about change configuration with type {}", listener, configType);
                 if (newConfig.get(configType) != null) {
                     ConfigMap oldConfig = currentConfig;
                     listener.onChange(oldConfig != null ? oldConfig.get(configType) : null, newConfig.get(configType));
