@@ -15,12 +15,10 @@
 package com.floragunn.searchguard.enterprise.femt;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 import co.elastic.clients.elasticsearch.core.MgetRequest;
 import co.elastic.clients.elasticsearch.core.MgetResponse;
@@ -60,7 +58,6 @@ import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.contains
 import static com.floragunn.searchsupport.junit.matcher.DocNodeMatchers.docNodeSizeEqualTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.not;
 
 public class MultitenancyTests {
@@ -531,19 +528,6 @@ public class MultitenancyTests {
                 response = adminCertClient.patchJsonMerge("/_searchguard/config/fe_multi_tenancy", config);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
-                //BulkConfig API
-                config = DocNode.of("enabled", true);
-                DocNode bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
-
-                response = adminCertClient.putJson("/_searchguard/config", bulkBody);
-                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
-
-                config = DocNode.of("enabled", false);
-                bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
-
-                response = adminCertClient.putJson("/_searchguard/config", bulkBody);
-                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
-
                 //create kibana index
                 response = adminCertClient.put("/.kibana");
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
@@ -559,6 +543,14 @@ public class MultitenancyTests {
                 config = DocNode.of("enabled", true);
 
                 response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
+                assertThat(response.getBodyAsDocNode(),
+                    containsValue("error.details['frontend_multi_tenancy.default'][0].error",
+                        "You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."
+                    )
+                );
+
+                response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy?force-mt-enabled=true", config);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
                 config = DocNode.of("enabled", false);
@@ -576,28 +568,75 @@ public class MultitenancyTests {
 
                 response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+                return null;
+            });
+        }
+    }
+
+    @Test
+    public void testBulkConfigApi_shouldAllowToChangeEnabledFlag_whenThereAreKibanaIndices() throws Exception {
+        try (GenericRestClient adminCertClient = cluster.getAdminCertRestClient()) {
+            cluster.callAndRestoreConfig(FeMultiTenancyConfig.TYPE, () -> {
+                GenericRestClient.HttpResponse response = adminCertClient.get("/_searchguard/config/fe_multi_tenancy");
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
 
                 //BulkConfig API
-                //try to change enabled flag
-                config = DocNode.of("enabled", false);
+                DocNode config = DocNode.of("enabled", true);
+                DocNode bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
 
+                response = adminCertClient.putJson("/_searchguard/config", bulkBody);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+
+                config = DocNode.of("enabled", false);
+                bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
+
+                response = adminCertClient.putJson("/_searchguard/config", bulkBody);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+
+                //create kibana index
+                response = adminCertClient.put("/.kibana");
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+
+                // send the same value
+
+                config = DocNode.of("enabled", false);
+                bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
+
+                response = adminCertClient.putJson("/_searchguard/config", bulkBody);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+
+                //try to change enabled flag
+
+                config = DocNode.of("enabled", true);
                 bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
 
                 response = adminCertClient.putJson("/_searchguard/config", bulkBody);
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
                 assertThat(response.getBodyAsDocNode(),
-                        containsValue("$.error.details.['frontend_multi_tenancy.default'].[0].error",
-                                "Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"
-                        )
+                    containsValue("$.error.details.['frontend_multi_tenancy.default'].[0].error",
+                        "You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."
+                    )
                 );
 
-                //send the same value that is already configured
-                config = DocNode.of("enabled", true);
+                //try to change enabled flag with a force option
 
+                config = DocNode.of("enabled", true);
+                bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
+
+                response = adminCertClient.putJson("/_searchguard/config?force-mt-enabled=true", bulkBody);
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+
+                // try to disable
+                config = DocNode.of("enabled", false);
                 bulkBody = DocNode.of("frontend_multi_tenancy.content", config);
 
                 response = adminCertClient.putJson("/_searchguard/config", bulkBody);
-                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
+                assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_BAD_REQUEST));
+                assertThat(response.getBodyAsDocNode(),
+                    containsValue("$.error.details.['frontend_multi_tenancy.default'].[0].error",
+                        "Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"
+                    )
+                );
 
                 return null;
             });
@@ -625,7 +664,7 @@ public class MultitenancyTests {
                 config = DocNode.of("enabled", true);
 
                 // enable MT
-                response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy", config);
+                response = adminCertClient.putJson("/_searchguard/config/fe_multi_tenancy?force-mt-enabled=true", config);
 
                 assertThat(response.getBody(), response.getStatusCode(), equalTo(HttpStatus.SC_OK));
                 Awaitility.await("frontend indices mappings extension").until(() -> {

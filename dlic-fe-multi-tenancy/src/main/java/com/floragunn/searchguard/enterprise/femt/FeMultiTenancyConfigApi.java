@@ -18,6 +18,8 @@
 package com.floragunn.searchguard.enterprise.femt;
 
 import com.floragunn.fluent.collections.ImmutableList;
+import com.floragunn.searchguard.configuration.validation.ValidationOption;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import com.floragunn.searchguard.enterprise.femt.tenants.GetAvailableTenantsAction;
 import com.floragunn.searchsupport.action.StandardRequests;
 import org.elasticsearch.common.inject.Inject;
@@ -34,8 +36,8 @@ public class FeMultiTenancyConfigApi extends TypeLevelConfigApi {
     public static final RestApi REST_API = new RestApi()//
             .handlesGet("/_searchguard/config/fe_multi_tenancy").with(GetAction.INSTANCE)//
             .handlesGet("/_searchguard/config/frontend_multi_tenancy").with(GetAction.INSTANCE)//
-            .handlesPut("/_searchguard/config/fe_multi_tenancy").with(PutAction.INSTANCE, (params, body) -> new PutAction.Request(body.parseAsMap()))//
-            .handlesPut("/_searchguard/config/frontend_multi_tenancy").with(PutAction.INSTANCE, (params, body) -> new PutAction.Request(body.parseAsMap()))//
+            .handlesPut("/_searchguard/config/fe_multi_tenancy").with(PutAction.INSTANCE, (params, body) -> new PutAction.Request(body.parseAsMap(), params))//
+            .handlesPut("/_searchguard/config/frontend_multi_tenancy").with(PutAction.INSTANCE, (params, body) -> new PutAction.Request(body.parseAsMap(), params))//
             .handlesPatch("/_searchguard/config/fe_multi_tenancy").with(PatchAction.INSTANCE, (params, body) -> new PatchAction.Request(DocPatch.parse(body)))
             .handlesPatch("/_searchguard/config/frontend_multi_tenancy").with(PatchAction.INSTANCE, (params, body) -> new PatchAction.Request(DocPatch.parse(body)))
             .handlesGet("/_searchguard/current_user/tenants").with(GetAvailableTenantsAction.INSTANCE, (params, body) -> new StandardRequests.EmptyRequest())//
@@ -78,6 +80,15 @@ public class FeMultiTenancyConfigApi extends TypeLevelConfigApi {
             @Inject
             public Handler(HandlerDependencies handlerDependencies, ConfigurationRepository configurationRepository) {
                 super(INSTANCE, FeMultiTenancyConfig.TYPE, handlerDependencies, configurationRepository);
+            }
+
+            @Override
+            protected ValidationSettings getValidationSettings(Request request) {
+                if(Boolean.parseBoolean(request.getRequestParameters().get("force-mt-enabled"))) {
+                    ValidationOption option = new ValidationOption(FeMultiTenancyConfig.TYPE.getName(), ImmutableList.of("enabled"));
+                    return new ValidationSettings(true, new ValidationOption[]{ option });
+                }
+                return ValidationSettings.ENABLED_WITHOUT_OPTIONS;
             }
         }
     }

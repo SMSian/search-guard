@@ -18,6 +18,7 @@ import com.floragunn.searchguard.configuration.ConcurrentConfigUpdateException;
 import com.floragunn.searchguard.configuration.ConfigUpdateException;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import com.floragunn.searchguard.enterprise.femt.FeMultiTenancyConfig;
 import com.floragunn.searchguard.enterprise.femt.FeMultiTenancyConfigurationProvider;
 import com.floragunn.searchguard.enterprise.femt.datamigration880.service.DataMigrationContext;
@@ -81,7 +82,7 @@ public class EnableMultitenancyStepTest {
         StepResult result = step.execute(migrationContext);
 
         assertThat(result.isSuccess(), equalTo(true));
-        verify(repository).update(eq(FeMultiTenancyConfig.TYPE), configCaptor.capture(), isNull(), eq(false));
+        verify(repository).update(eq(FeMultiTenancyConfig.TYPE), configCaptor.capture(), isNull(), eq(ValidationSettings.DISABLED));
         SgDynamicConfiguration<FeMultiTenancyConfig> dynamicConfig = configCaptor.getValue();
         FeMultiTenancyConfig capturedConfig = dynamicConfig.getCEntry("default");
         assertThat(capturedConfig.isEnabled(), equalTo(true));
@@ -95,7 +96,7 @@ public class EnableMultitenancyStepTest {
         StepResult result = step.execute(migrationContext);
 
         assertThat(result.isSuccess(), equalTo(true));
-        verify(repository).update(eq(FeMultiTenancyConfig.TYPE), configCaptor.capture(), isNull(), eq(false));
+        verify(repository).update(eq(FeMultiTenancyConfig.TYPE), configCaptor.capture(), isNull(), eq(ValidationSettings.DISABLED));
         SgDynamicConfiguration<FeMultiTenancyConfig> dynamicConfig = configCaptor.getValue();
         FeMultiTenancyConfig capturedConfig = dynamicConfig.getCEntry("default");
         assertThat(capturedConfig.isEnabled(), equalTo(true));
@@ -109,7 +110,7 @@ public class EnableMultitenancyStepTest {
         StepResult result = step.execute(migrationContext);
 
         assertThat(result.isSuccess(), equalTo(true));
-        verify(repository, never()).update(eq(FeMultiTenancyConfig.TYPE), any(), isNull(), eq(false));
+        verify(repository, never()).update(eq(FeMultiTenancyConfig.TYPE), any(), isNull(), eq(ValidationSettings.DISABLED));
     }
 
     @Test
@@ -118,7 +119,7 @@ public class EnableMultitenancyStepTest {
         when(configurationProvider.getConfig()).thenReturn(Optional.of(FeMultiTenancyConfig.DEFAULT.withEnabled(false)));
         doThrow(ConcurrentConfigUpdateException.class)//
             .when(repository) //
-            .update(eq(FeMultiTenancyConfig.TYPE), any(), isNull(), eq(false));
+            .update(eq(FeMultiTenancyConfig.TYPE), any(), isNull(), eq(ValidationSettings.DISABLED));
 
         StepException exception = (StepException) assertThatThrown(() -> step.execute(migrationContext), instanceOf(StepException.class));
 

@@ -17,8 +17,10 @@
 
 package com.floragunn.searchguard.configuration.api;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -29,6 +31,7 @@ import com.floragunn.searchguard.configuration.ConfigUpdateException;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
 import com.floragunn.searchguard.configuration.ConfigurationRepository.Context;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import org.apache.http.HttpStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -156,26 +159,56 @@ public abstract class TypeLevelConfigApi {
         }
 
         public static class Request extends Action.Request {
+            public static final String REQUEST_PARAMETERS = "type_config_update_request_parameters";
 
             private final Map<String, Object> config;
+            private final ImmutableMap<String, String> params;
 
             public Request(Map<String, Object> config) {
+                this(config, ImmutableMap.empty());
+            }
+
+            public Request(Map<String, Object> config, Map<String, String> params) {
                 super();
                 this.config = config;
+                this.params = Objects.isNull(params) || params.isEmpty() ? ImmutableMap.empty() : ImmutableMap.of(params);
+                for (String key : params.keySet()) {
+                    // mark all parameters as used
+                    params.get(key);
+                }
             }
 
             public Request(UnparsedMessage message) throws ConfigValidationException {
                 DocNode docNode = message.requiredDocNode();
-                this.config = docNode.getAsNode("config").toMap();
+                DocNode configNode = docNode.getAsNode("config");
+                this.config = configNode.without(REQUEST_PARAMETERS).toMap();
+                DocNode parametersNode = configNode.getAsNode(REQUEST_PARAMETERS);
+                parametersNode = parametersNode == null ? DocNode.EMPTY : parametersNode;
+                Map<String, String> stringMap = new HashMap<>();
+                for(Map.Entry<String, Object> entry : parametersNode.toMap().entrySet()) {
+                    if(entry.getValue() instanceof String stringValue) {
+                        stringMap.put(entry.getKey(), stringValue);
+                    }
+                }
+                this.params = ImmutableMap.of(stringMap);
             }
 
             public Map<String, Object> getConfig() {
                 return config;
             }
 
+            public Map<String, String> getRequestParameters() {
+                return params;
+            }
+
             @Override
             public Object toBasicObject() {
-                return ImmutableMap.of("config", config);
+                if(params.isEmpty()) {
+                    return ImmutableMap.of("config",  config);
+                }
+                Map<String, Object> extendedConfig = new HashMap<>(config);
+                extendedConfig.put(REQUEST_PARAMETERS, params);
+                return ImmutableMap.of("config", extendedConfig);
             }
         }
 
@@ -210,7 +243,7 @@ public abstract class TypeLevelConfigApi {
 
                         try (SgDynamicConfiguration<T> config = SgDynamicConfiguration.fromMap(configMap, configType, context).get()) {
 
-                            this.configurationRepository.update(configType, config, request.getIfMatch());
+                            this.configurationRepository.update(configType, config, request.getIfMatch(), getValidationSettings(request));
                             return new StandardResponse(200).message("Configuration has been updated");
                         }
                     } catch (ConfigValidationException e) {
@@ -222,6 +255,10 @@ public abstract class TypeLevelConfigApi {
                         return new StandardResponse(500).error(null, e.getMessage(), e.getDetailsAsMap());
                     }
                 });
+            }
+
+            protected ValidationSettings getValidationSettings(Request request) {
+                return ValidationSettings.ENABLED_WITHOUT_OPTIONS;
             }
 
         }

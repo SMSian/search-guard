@@ -28,6 +28,7 @@ import java.util.Map;
 
 import com.floragunn.codova.validation.ValidationErrors;
 import com.floragunn.searchguard.configuration.validation.ConfigModificationValidators;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.DocWriteResponse;
@@ -179,7 +180,7 @@ public abstract class PatchableResourceApiAction extends AbstractApiAction {
                 existingConfiguration.getPrimaryTerm(), cl.getParserContext()).get();) {
 
             ValidationErrors validationErrors = new ValidationErrors();
-            validationErrors.add(configModificationValidators.validateConfig(mdc));
+            validationErrors.add(configModificationValidators.validateConfig(mdc, ValidationSettings.ENABLED_WITHOUT_OPTIONS));
 
             validationErrors.throwExceptionForPresentErrors();
 
@@ -267,7 +268,7 @@ public abstract class PatchableResourceApiAction extends AbstractApiAction {
                 existingConfiguration.getPrimaryTerm(), cl.getParserContext()).get()) {
 
             ValidationErrors validationErrors = new ValidationErrors();
-            validationErrors.add(configModificationValidators.validateConfig(mdc));
+            validationErrors.add(configModificationValidators.validateConfig(mdc, ValidationSettings.ENABLED_WITHOUT_OPTIONS));
 
             validationErrors.throwExceptionForPresentErrors();
 

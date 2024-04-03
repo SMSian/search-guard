@@ -18,6 +18,7 @@
 package com.floragunn.searchguard.configuration.validation;
 
 import com.floragunn.codova.validation.errors.ValidationError;
+import com.floragunn.fluent.collections.ImmutableList;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
 
 import java.util.ArrayList;
@@ -34,34 +35,43 @@ public class ConfigModificationValidators {
         this.validators.addAll(validators);
     }
 
-    public List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs) {
+    public List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs, ValidationSettings settings) {
+        if(settings.skipValidation()) {
+            return ImmutableList.empty();
+        }
 
         List<ValidationError> validationErrors = new ArrayList<>();
 
         validators.forEach(validator -> {
-            validationErrors.addAll(validator.validateConfigs(newConfigs));
+            validationErrors.addAll(validator.validateConfigs(newConfigs, settings.options()));
         });
 
         return validationErrors;
     }
 
-    public List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig) {
+    public List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig, ValidationSettings settings) {
+        if(settings.skipValidation()) {
+            return ImmutableList.empty();
+        }
 
         List<ValidationError> validationErrors = new ArrayList<>();
 
         validators.forEach(validator -> {
-            validationErrors.addAll(validator.validateConfig(newConfig));
+            validationErrors.addAll(validator.validateConfig(newConfig, settings.options()));
         });
 
         return validationErrors;
     }
 
-    public <T> List<ValidationError> validateConfigEntry(T newConfigEntry) {
+    public <T> List<ValidationError> validateConfigEntry(T newConfigEntry, ValidationSettings settings) {
+        if(settings.skipValidation()) {
+            return ImmutableList.empty();
+        }
 
         List<ValidationError> validationErrors = new ArrayList<>();
 
         validators.forEach(validator -> {
-            validationErrors.addAll(validator.validateConfigEntry(newConfigEntry));
+            validationErrors.addAll(validator.validateConfigEntry(newConfigEntry, settings.options()));
         });
 
         return validationErrors;

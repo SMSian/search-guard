@@ -36,6 +36,8 @@ import java.util.stream.Collectors;
 
 import com.floragunn.codova.config.templates.PipeExpression;
 import com.floragunn.searchguard.configuration.validation.ConfigModificationValidators;
+import com.floragunn.searchguard.configuration.validation.ValidationOption;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ExceptionsHelper;
@@ -145,7 +147,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
     private volatile ConfigMap currentConfig;
     private final List<ConfigurationChangeListener> configurationChangedListener;
 
-    private final List<LocalConfigChangeListener> localConfigChangeListeners;
+    private final List<LocalConfigChangeListener<?>> localConfigChangeListeners;
 
     /**
      * ConfigurationLoader for config that will be used by SG. Keeps component state up-to-date.
@@ -724,11 +726,11 @@ public class ConfigurationRepository implements ComponentStateProvider {
         return externalUseConfigLoader.loadSync(configType, reason, parserContext);
     }
    
-    public <T> StandardResponse addOrUpdate(CType<T> ctype, String id, T entry, String matchETag)
+    public <T> StandardResponse addOrUpdate(CType<T> ctype, String id, T entry, String matchETag, ValidationOption... options)
             throws ConfigUpdateException, ConcurrentConfigUpdateException, ConfigValidationException {
         try {
             ValidationErrors validationErrors = new ValidationErrors();
-            validationErrors.add(configModificationValidators.validateConfigEntry(entry));
+            validationErrors.add(configModificationValidators.validateConfigEntry(entry, ValidationSettings.enabledWithOptions(options)));
 
             validationErrors.throwExceptionForPresentErrors();
 
@@ -743,7 +745,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
 
             configInstance = configInstance.with(id, entry);
 
-            update(ctype, configInstance, matchETag, false);
+            update(ctype, configInstance, matchETag, ValidationSettings.DISABLED);
 
             if (!alreadyExists) {
                 return new StandardResponse(201).message(ctype.getUiName() + " " + id + " has been created");
@@ -755,12 +757,12 @@ public class ConfigurationRepository implements ComponentStateProvider {
         }
     }
 
-    public <T> StandardResponse applyPatch(CType<T> configType, DocPatch patch, String matchETag)
+    public <T> StandardResponse applyPatch(CType<T> configType, DocPatch patch, String matchETag, ValidationOption... options)
             throws ConfigUpdateException, ConcurrentConfigUpdateException, NoSuchConfigEntryException, ConfigValidationException {
         try {
 
             if (configType.getArity() == CType.Arity.SINGLE) {
-                return applyPatch(configType, "default", patch, matchETag, PatchDefaultHandling.TREAT_MISSING_DOCUMENT_AS_EMPTY_DOCUMENT);
+                return applyPatch(configType, "default", patch, matchETag, PatchDefaultHandling.TREAT_MISSING_DOCUMENT_AS_EMPTY_DOCUMENT, options);
             }
 
             SgDynamicConfiguration<T> configInstance = getConfigurationFromIndex(configType, "Update of entry");
@@ -813,7 +815,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
                 }
             };
 
-            update(configType, SgDynamicConfiguration.of(configType, doc.patch(patch, parserContext)), matchETag, true);
+            update(configType, SgDynamicConfiguration.of(configType, doc.patch(patch, parserContext)), matchETag, ValidationSettings.enabledWithOptions(options));
 
             return new StandardResponse(200).message(configType.getUiName() + " has been updated");
 
@@ -823,7 +825,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
     }
 
     public <T> StandardResponse applyPatch(CType<T> configType, String id, DocPatch patch, String matchETag,
-            PatchDefaultHandling patchDefaultHandling)
+            PatchDefaultHandling patchDefaultHandling, ValidationOption... options)
             throws ConfigUpdateException, ConcurrentConfigUpdateException, NoSuchConfigEntryException, ConfigValidationException {
         try {
             SgDynamicConfiguration<T> configInstance = getConfigurationFromIndex(configType, "Update of entry " + id);
@@ -853,11 +855,11 @@ public class ConfigurationRepository implements ComponentStateProvider {
             
             try {
                 ValidationErrors validationErrors = new ValidationErrors();
-                validationErrors.add(configModificationValidators.validateConfigEntry(newEntry));
+                validationErrors.add(configModificationValidators.validateConfigEntry(newEntry, ValidationSettings.enabledWithOptions(options)));
 
                 validationErrors.throwExceptionForPresentErrors();
 
-                update(configType, configInstance.with(id, newEntry), matchETag, false);
+                update(configType, configInstance.with(id, newEntry), matchETag, ValidationSettings.DISABLED);
             } finally {
                 if (newEntry instanceof AutoCloseable) {
                     try {
@@ -893,7 +895,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
                 throw new NoSuchConfigEntryException(configType, id);
             }
 
-            update(configType, configInstance.without(id), null, false);
+            update(configType, configInstance.without(id), null, ValidationSettings.DISABLED);
 
             return new StandardResponse(200).message(configType.getUiName() + " " + id + " has been deleted");
         } catch (ConfigUnavailableException | ConfigValidationException e) {
@@ -917,17 +919,17 @@ public class ConfigurationRepository implements ComponentStateProvider {
 
     public <T> void update(CType<T> ctype, SgDynamicConfiguration<T> configInstance, String matchETag)
             throws ConfigUpdateException, ConcurrentConfigUpdateException, ConfigValidationException {
-        update(ctype, configInstance, matchETag, true);
+        update(ctype, configInstance, matchETag, ValidationSettings.ENABLED_WITHOUT_OPTIONS);
     }
 
-    public <T> void update(CType<T> ctype, SgDynamicConfiguration<T> configInstance, String matchETag,
-                             boolean runValidations) throws ConfigUpdateException, ConcurrentConfigUpdateException, ConfigValidationException {
+    public <T> void update(CType<T> ctype, SgDynamicConfiguration<T> configInstance, String matchETag, ValidationSettings settings) 
+        throws ConfigUpdateException, ConcurrentConfigUpdateException, ConfigValidationException {
 
-        if (runValidations) {
-            ValidationErrors validationErrors = new ValidationErrors();
-            validationErrors.add(configModificationValidators.validateConfig(configInstance));
-            validationErrors.throwExceptionForPresentErrors();
-        }
+        
+        ValidationErrors validationErrors = new ValidationErrors();
+        validationErrors.add(configModificationValidators.validateConfig(configInstance, settings));
+        validationErrors.throwExceptionForPresentErrors();
+        
 
         String indexName = getEffectiveSearchGuardIndexAndCreateIfNecessary();
         IndexRequest indexRequest = new IndexRequest(indexName);
@@ -988,7 +990,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
         }
     }
 
-    public Map<CType<?>, ConfigUpdateResult> update(Map<CType<?>, ConfigWithMetadata> configTypeToConfigMap)
+    public Map<CType<?>, ConfigUpdateResult> update(Map<CType<?>, ConfigWithMetadata> configTypeToConfigMap, ValidationOption... options)
             throws ConfigUpdateException, ConfigValidationException, ConcurrentConfigUpdateException {
         ValidationErrors validationErrors = new ValidationErrors();
         BulkRequest bulkRequest = new BulkRequest();
@@ -1086,7 +1088,7 @@ public class ConfigurationRepository implements ComponentStateProvider {
             }
         }
 
-        validationErrors.add(configModificationValidators.validateConfigs(parsedConfigs));
+        validationErrors.add(configModificationValidators.validateConfigs(parsedConfigs, ValidationSettings.enabledWithOptions(options)));
 
         parsedConfigs.forEach(SgDynamicConfiguration::close);
 

@@ -24,7 +24,6 @@ import com.floragunn.fluent.collections.ImmutableSet;
 import com.floragunn.searchguard.authz.config.Role;
 import com.floragunn.searchguard.authz.config.Tenant;
 import com.floragunn.searchguard.configuration.CType;
-import com.floragunn.searchguard.configuration.ConfigMap;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
 import org.apache.logging.log4j.LogManager;
@@ -42,14 +41,13 @@ import java.util.stream.Collectors;
 public class RoleRelationsValidator extends ConfigModificationValidator<Role> {
 
     private static final Logger log = LogManager.getLogger(RoleRelationsValidator.class);
-    private ConfigMap configMap;
 
     public RoleRelationsValidator(ConfigurationRepository configurationRepository) {
         super(CType.ROLES, configurationRepository);
     }
 
     @Override
-    public List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs) {
+    public List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs, ValidationOption... options) {
         List<SgDynamicConfiguration<?>> notNullConfigs = Optional.ofNullable(newConfigs).orElse(new ArrayList<>())
                 .stream().filter(Objects::nonNull).collect(Collectors.toList());
 
@@ -62,12 +60,12 @@ public class RoleRelationsValidator extends ConfigModificationValidator<Role> {
     }
 
     @Override
-    public List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig) {
+    public List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig, ValidationOption... options) {
         return validateConfigs(Collections.singletonList(newConfig));
     }
 
     @Override
-    public <T> List<ValidationError> validateConfigEntry(T newConfigEntry) {
+    public <T> List<ValidationError> validateConfigEntry(T newConfigEntry, ValidationOption... options) {
         if (Objects.nonNull(newConfigEntry)) {
             List<ValidationError> errors = new ArrayList<>();
 

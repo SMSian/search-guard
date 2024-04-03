@@ -18,6 +18,7 @@
 package com.floragunn.searchguard.configuration.validation;
 
 import com.floragunn.codova.validation.errors.ValidationError;
+import com.floragunn.fluent.collections.ImmutableMap;
 import com.floragunn.searchguard.configuration.CType;
 import com.floragunn.searchguard.configuration.ConfigMap;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
@@ -38,9 +39,9 @@ public abstract class ConfigModificationValidator<T> {
         configurationRepository.subscribeOnChange(this::setConfigMap);
     }
 
-    public abstract List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs);
-    public abstract List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig);
-    public abstract <T> List<ValidationError> validateConfigEntry(T newConfigEntry);
+    public abstract List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs, ValidationOption... options);
+    public abstract List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig, ValidationOption... options);
+    public abstract <T> List<ValidationError> validateConfigEntry(T newConfigEntry, ValidationOption... options);
 
     public void setConfigMap(ConfigMap configMap) {
         this.configMap = configMap;

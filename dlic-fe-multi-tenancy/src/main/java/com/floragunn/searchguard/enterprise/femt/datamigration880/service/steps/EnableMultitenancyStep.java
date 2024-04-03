@@ -18,6 +18,7 @@ import com.floragunn.searchguard.configuration.ConcurrentConfigUpdateException;
 import com.floragunn.searchguard.configuration.ConfigUpdateException;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import com.floragunn.searchguard.enterprise.femt.FeMultiTenancyConfig;
 import com.floragunn.searchguard.enterprise.femt.FeMultiTenancyConfigurationProvider;
 import com.floragunn.searchguard.enterprise.femt.datamigration880.service.DataMigrationContext;
@@ -47,19 +48,19 @@ class EnableMultitenancyStep implements MigrationStep {
 
     @Override
     public StepResult execute(DataMigrationContext dataMigrationContext) throws StepException {
-        Optional<FeMultiTenancyConfig> configurationOptional = configurationProvider.getConfig();
-        if (configurationOptional.map(FeMultiTenancyConfig::isEnabled).orElse(FeMultiTenancyConfig.DEFAULT.isEnabled())) {
+        FeMultiTenancyConfig configuration = configurationProvider.getConfig().orElse(FeMultiTenancyConfig.DEFAULT);
+        if (configuration.isEnabled()) {
             return new StepResult(OK, "Multitenancy is already enabled", "Nothing to be done");
         } else {
-            return enableMultitenancy(configurationOptional);
+            return enableMultitenancy(configuration);
         }
     }
 
-    private StepResult enableMultitenancy(Optional<FeMultiTenancyConfig> configurationOptional) {
-        var newConfig = configurationOptional.orElse(FeMultiTenancyConfig.DEFAULT).withEnabled(true);
+    private StepResult enableMultitenancy(FeMultiTenancyConfig configuration) {
+        var newConfig = configuration.withEnabled(true);
         try (
             var config = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", newConfig)) {
-            configRepository.update(FeMultiTenancyConfig.TYPE, config, null, false);
+            configRepository.update(FeMultiTenancyConfig.TYPE, config, null, ValidationSettings.DISABLED);
             return new StepResult(OK, "Multitenancy has been enabled.", "New configuration " + newConfig);
         } catch (ConfigUpdateException | ConfigValidationException | ConcurrentConfigUpdateException e) {
             log.error("Cannot enable multitenancy", e);

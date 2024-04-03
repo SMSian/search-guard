@@ -24,6 +24,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
+import com.floragunn.codova.documents.UnexpectedDocumentStructureException;
+import com.floragunn.fluent.collections.ImmutableList;
+import com.floragunn.searchguard.configuration.validation.ValidationOption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.common.Strings;
@@ -51,7 +54,6 @@ import com.floragunn.searchguard.configuration.ConfigUnavailableException;
 import com.floragunn.searchguard.configuration.ConfigUpdateException;
 import com.floragunn.searchguard.configuration.ConfigurationLoader;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
-import com.floragunn.searchguard.configuration.ConfigurationRepository.ConfigUpdateResult;
 import com.floragunn.searchguard.configuration.ConfigurationRepository.ConfigWithMetadata;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
 import com.floragunn.searchguard.configuration.variables.ConfigVar;
@@ -68,7 +70,7 @@ public class BulkConfigApi {
     public static final RestApi REST_API = new RestApi()//
             .responseHeaders(SearchGuardVersion.header())//
             .handlesGet("/_searchguard/config").with(GetAction.INSTANCE)//
-            .handlesPut("/_searchguard/config").with(UpdateAction.INSTANCE)//
+            .handlesPut("/_searchguard/config").with(UpdateAction.INSTANCE, UpdateAction.Request::new)//
             .name("/_searchguard/config");
 
     public static class GetAction extends Action<EmptyRequest, GetAction.Response> {
@@ -197,25 +199,38 @@ public class BulkConfigApi {
         }
 
         public static class Request extends Action.Request {
+            public static final String QUERY_PARAM_FORCE_ENABLE_MT = "force_enable_mt";
+            public static final String REQUEST_PARAMETERS = "bulk_config_update_request_parameters";
+            private final Map<String, Object> content;
 
-            private final UnparsedDocument<?> config;
-
-            public Request(UnparsedDocument<?> config) {
+            public Request(Map<String, String> params, UnparsedDocument<?> config)
+                throws UnexpectedDocumentStructureException, DocumentParseException {
                 super();
-                this.config = config;
+                this.content = config.parseAsMap();
+                DocNode node = params == null ? DocNode.EMPTY : DocNode.of(QUERY_PARAM_FORCE_ENABLE_MT, params.get("force-mt-enabled"));
+                this.content.put(REQUEST_PARAMETERS, node);
             }
 
             public Request(UnparsedMessage message) throws ConfigValidationException {
-                this.config = message.requiredUnparsedDoc();
+                this.content = message.requiredUnparsedDoc().parseAsMap();
             }
 
             public UnparsedDocument<?> getConfig() {
-                return config;
+                return UnparsedDocument.from(DocNode.wrap(content).without(REQUEST_PARAMETERS).toJsonString(), Format.JSON);
             }
 
             @Override
             public Object toBasicObject() {
-                return config;
+                return UnparsedDocument.from(DocNode.wrap(content).toJsonString(), Format.JSON);
+            }
+
+            public ValidationOption[] gatValidationOptions() {
+                DocNode docNode = DocNode.wrap(content);
+                DocNode params = docNode.containsKey(REQUEST_PARAMETERS) ? docNode.getAsNode(REQUEST_PARAMETERS) : DocNode.EMPTY;
+                if(Boolean.parseBoolean(params.getAsString(QUERY_PARAM_FORCE_ENABLE_MT))) {
+                    return new ValidationOption[]{new ValidationOption("frontend_multi_tenancy", ImmutableList.of("enabled"))};
+                }
+                return new ValidationOption[0];
             }
         }
 
@@ -264,7 +279,7 @@ public class BulkConfigApi {
                         }
 
                         if (!configMap.isEmpty()) {
-                            Map<CType<?>, ConfigUpdateResult> result = this.configurationRepository.update(configMap);
+                            var result = this.configurationRepository.update(configMap, request.gatValidationOptions());
                             return new StandardResponse(200).message("Configuration has been updated").data(result);
                         } else {
                             return new StandardResponse(200).message("No configuration was provided");

@@ -31,6 +31,7 @@ import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
 import com.floragunn.searchguard.configuration.StaticDefinable;
 import com.floragunn.searchguard.configuration.StaticSgConfig;
 import com.floragunn.searchguard.configuration.validation.ConfigModificationValidators;
+import com.floragunn.searchguard.configuration.validation.ValidationSettings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ExceptionsHelper;
@@ -223,7 +224,7 @@ public abstract class AbstractApiAction extends BaseRestHandler {
         try {
 			ValidationErrors validationErrors = validatedConfig.getValidationErrors();
 			Object configEntry = validatedConfig.peek();
-			validationErrors.add(configModificationValidators.validateConfigEntry(configEntry));
+			validationErrors.add(configModificationValidators.validateConfigEntry(configEntry, ValidationSettings.ENABLED_WITHOUT_OPTIONS));
 
 			//validationErrors.throwExceptionForPresentErrors() is not explicitly called, since validatedConfig.get() calls it anyway
             existingConfiguration = existingConfiguration.with(name, validatedConfig.get());

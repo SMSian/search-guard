@@ -18,6 +18,7 @@ import com.floragunn.codova.validation.errors.ValidationError;
 import com.floragunn.searchguard.configuration.validation.ConfigModificationValidator;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
+import com.floragunn.searchguard.configuration.validation.ValidationOption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.cluster.service.ClusterService;
@@ -28,6 +29,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+
+import static com.floragunn.searchguard.configuration.validation.ValidationOption.isPropertyValidationEnabled;
 
 class FeMultiTenancyEnabledFlagValidator extends ConfigModificationValidator<FeMultiTenancyConfig> {
 
@@ -46,25 +49,25 @@ class FeMultiTenancyEnabledFlagValidator extends ConfigModificationValidator<FeM
     }
 
     @Override
-    public List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs) {
+    public List<ValidationError> validateConfigs(List<SgDynamicConfiguration<?>> newConfigs, ValidationOption... options) {
         List<SgDynamicConfiguration<?>> notNullConfigs = Optional.ofNullable(newConfigs).orElse(new ArrayList<>())
                 .stream().filter(Objects::nonNull).collect(Collectors.toList());
 
         List<ValidationError> errors = new ArrayList<>();
 
         Optional<SgDynamicConfiguration<FeMultiTenancyConfig>> newFeMtConfig = findConfigOfType(FeMultiTenancyConfig.class, notNullConfigs);
-        newFeMtConfig.flatMap(this::validateMultiTenancyEnabledFlag).ifPresent(errors::add);
+        newFeMtConfig.flatMap(feMtConfig -> validateMultiTenancyEnabledFlag(feMtConfig, options)).ifPresent(errors::add);
 
         return errors;
     }
 
     @Override
-    public List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig) {
-        return validateConfigs(Collections.singletonList(newConfig));
+    public List<ValidationError> validateConfig(SgDynamicConfiguration<?> newConfig, ValidationOption... options) {
+        return validateConfigs(Collections.singletonList(newConfig), options);
     }
 
     @Override
-    public <T> List<ValidationError> validateConfigEntry(T newConfigEntry) {
+    public <T> List<ValidationError> validateConfigEntry(T newConfigEntry, ValidationOption... options) {
         if (Objects.nonNull(newConfigEntry)) {
             List<ValidationError> errors = new ArrayList<>();
 
@@ -72,7 +75,7 @@ class FeMultiTenancyEnabledFlagValidator extends ConfigModificationValidator<FeM
 
                 FeMultiTenancyConfig currentConfig = getCurrentConfiguration();
 
-                validateEntryEnabledFlag(null, (FeMultiTenancyConfig) newConfigEntry, currentConfig).ifPresent(errors::add);
+                validateEntryEnabledFlag(null, (FeMultiTenancyConfig) newConfigEntry, currentConfig, options).ifPresent(errors::add);
             }
 
             return errors;
@@ -80,20 +83,25 @@ class FeMultiTenancyEnabledFlagValidator extends ConfigModificationValidator<FeM
         return Collections.emptyList();
     }
 
-    private Optional<ValidationError> validateMultiTenancyEnabledFlag(SgDynamicConfiguration<FeMultiTenancyConfig> feMtConfig) {
+    private Optional<ValidationError> validateMultiTenancyEnabledFlag(SgDynamicConfiguration<FeMultiTenancyConfig> feMtConfig, ValidationOption[] options) {
 
         FeMultiTenancyConfig currentCfg = getCurrentConfiguration();
 
         return Optional.of(feMtConfig)
                 .map(config -> config.getCEntry(CONFIG_ENTRY_DEFAULT_KEY))
-                .flatMap(config -> validateEntryEnabledFlag(CONFIG_ENTRY_DEFAULT_KEY, config, currentCfg));
+                .flatMap(config -> validateEntryEnabledFlag(CONFIG_ENTRY_DEFAULT_KEY, config, currentCfg, options));
     }
 
     private Optional<ValidationError> validateEntryEnabledFlag(
-            String configEntryKey, FeMultiTenancyConfig newConfig, FeMultiTenancyConfig currentConfig) {
+            String configEntryKey, FeMultiTenancyConfig newConfig, FeMultiTenancyConfig currentConfig, ValidationOption[] options) {
 
-        if (currentConfig.isEnabled() && (!newConfig.isEnabled()) && anyKibanaIndexExists()) {
+        if (currentConfig.isEnabled() && (newConfig.isDisabled()) && anyKibanaIndexExists()) {
             String msg = "Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team";
+            return Optional.of(toValidationError(configEntryKey, msg));
+        }
+        if (currentConfig.isDisabled() && (newConfig.isEnabled()) && isPropertyValidationEnabled(
+            options, FeMultiTenancyConfig.TYPE, "enabled") && anyKibanaIndexExists()) {
+            String msg = "You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed.";
             return Optional.of(toValidationError(configEntryKey, msg));
         } else {
             return Optional.empty();

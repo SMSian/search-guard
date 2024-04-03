@@ -95,6 +95,10 @@ public class FeMultiTenancyConfig implements PatchableDocument<FeMultiTenancyCon
         return enabled;
     }
 
+    public boolean isDisabled() {
+        return ! isEnabled();
+    }
+
     public String getIndex() {
         return index;
     }
