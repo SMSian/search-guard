@@ -33,7 +33,7 @@ class ExtendMappingsListener implements LocalConfigChangeListener<FeMultiTenancy
         boolean previouslyEnabled = Optional.ofNullable(oldConfig) //
             .map(dynamic -> dynamic.getCEntry("default")) //
             .map(FeMultiTenancyConfig::isEnabled) //
-            .orElse(false);
+            .orElse(FeMultiTenancyConfig.DEFAULT.isEnabled());
         if (previouslyEnabled) {
             log.debug("MT is already enabled, nothing to be done");
             return;

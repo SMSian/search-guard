@@ -15,12 +15,14 @@ package com.floragunn.searchguard.enterprise.femt;
 
 import com.floragunn.codova.documents.DocNode;
 import com.floragunn.codova.validation.errors.ValidationError;
+import com.floragunn.fluent.collections.ImmutableList;
 import com.floragunn.fluent.collections.ImmutableMap;
 import com.floragunn.searchguard.authz.config.Role;
 import com.floragunn.searchguard.configuration.CType;
 import com.floragunn.searchguard.configuration.ConfigMap;
 import com.floragunn.searchguard.configuration.ConfigurationRepository;
 import com.floragunn.searchguard.configuration.SgDynamicConfiguration;
+import com.floragunn.searchguard.configuration.validation.ValidationOption;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.service.ClusterService;
@@ -35,6 +37,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.TreeMap;
 
+import static com.floragunn.searchguard.enterprise.femt.FeMultiTenancyConfig.TYPE;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -44,6 +47,7 @@ import static org.mockito.Mockito.when;
 @RunWith(MockitoJUnitRunner.class)
 public class FeMultiTenancyEnabledFlagValidatorTest {
 
+    public static final ValidationOption OMIT_MT_ENABLED_VALIDATION = new ValidationOption(TYPE.getName(), ImmutableList.of("enabled"));
     @Mock
     private ConfigurationRepository configurationRepository;
 
@@ -78,7 +82,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to disable MT
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -91,14 +96,17 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to enable MT
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig);
-        assertThat(validationErrors, hasSize(0));
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("_"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."));
 
 
         //should compare to default (disabled) configuration
@@ -106,6 +114,48 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig);
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("_"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."));
+    }
+
+    @Test
+    public void configEntry_shouldOmitValidationOfFeMtEnabledFlag_valueChanges_thereIsKibanaIndex() throws Exception {
+
+        when(metadata.getIndicesLookup()).thenReturn(new TreeMap<>(ImmutableMap.of(KIBANA_INDEX + "_1.2.3", null)));
+
+        //try to disable MT
+        ConfigMap configMap = configMapWithConfig(
+            SgDynamicConfiguration.of(
+                TYPE,
+                "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
+        );
+        feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
+
+        FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
+        List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig, OMIT_MT_ENABLED_VALIDATION);
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("_"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"));
+
+        //try to enable MT
+        configMap = configMapWithConfig(
+            SgDynamicConfiguration.of(
+                TYPE,
+                "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
+        );
+        feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
+
+        feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig, OMIT_MT_ENABLED_VALIDATION);
+        assertThat(validationErrors, hasSize(0));
+
+
+        //should compare to default (disabled) configuration
+        feMultiTenancyEnabledFlagValidator.setConfigMap(null);
+
+        feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigEntry(feMtConfig, OMIT_MT_ENABLED_VALIDATION);
         assertThat(validationErrors, hasSize(0));
     }
 
@@ -116,7 +166,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to disable MT
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -127,7 +178,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to enable MT
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -150,7 +202,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //MT disabled
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -168,7 +221,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //MT enabled
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -184,7 +238,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configEntry_shouldDoNothing_configTypeNotSupported() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -199,7 +254,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configEntry_shouldDoNothing_configIsNull() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -216,13 +272,14 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to disable MT
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(1));
         assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
@@ -230,14 +287,62 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to enable MT
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."));
+
+
+        //should compare to default (disabled) configuration
+        feMultiTenancyEnabledFlagValidator.setConfigMap(null);
+
+        feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."));
+    }
+
+    @Test
+    public void config_shouldOmitValidationOfFeMtEnabledFlag_valueChanges_thereIsKibanaIndex() throws Exception {
+
+        when(metadata.getIndicesLookup()).thenReturn(new TreeMap<>(ImmutableMap.of(KIBANA_INDEX, null)));
+
+        //try to disable MT
+        ConfigMap configMap = configMapWithConfig(
+            SgDynamicConfiguration.of(
+                TYPE,
+                "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
+        );
+        feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
+
+        FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"));
+
+        //try to enable MT
+        configMap = configMapWithConfig(
+            SgDynamicConfiguration.of(
+                TYPE,
+                "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
+        );
+        feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
+
+        feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig, OMIT_MT_ENABLED_VALIDATION);
         assertThat(validationErrors, hasSize(0));
 
 
@@ -245,8 +350,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMultiTenancyEnabledFlagValidator.setConfigMap(null);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
-        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig, OMIT_MT_ENABLED_VALIDATION);
         assertThat(validationErrors, hasSize(0));
     }
 
@@ -257,25 +362,27 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to disable MT
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
         //try to enable MT
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
@@ -284,7 +391,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMultiTenancyEnabledFlagValidator.setConfigMap(null);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
     }
@@ -294,13 +401,14 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //MT disabled
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
@@ -308,19 +416,20 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMultiTenancyEnabledFlagValidator.setConfigMap(null);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
         //MT enabled
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
@@ -331,7 +440,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void config_shouldDoNothing_configTypeNotSupported() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -347,7 +457,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void config_shouldDoNothing_configIsNull() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -361,11 +472,12 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void config_shouldDoNothing_configIsEmpty() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.empty(FeMultiTenancyConfig.TYPE);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.empty(TYPE);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
@@ -376,12 +488,13 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void config_shouldDoNothing_configWithUnsupportedKey() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "unsupported", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "unsupported", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfig(newConfig);
         assertThat(validationErrors, hasSize(0));
 
@@ -395,13 +508,14 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to disable MT
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(1));
         assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
@@ -409,14 +523,62 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to enable MT
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."));
+
+
+        //should compare to default (disabled) configuration
+        feMultiTenancyEnabledFlagValidator.setConfigMap(null);
+
+        feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("You try to enable multitenancy. This operation cannot be undone. Please use the appropriate force flag if you are sure that you want to proceed."));
+    }
+
+    @Test
+    public void configList_shouldOmitValidationOfFeMtEnabledFlag_valueChanges_thereIsKibanaIndex() throws Exception {
+
+        when(metadata.getIndicesLookup()).thenReturn(new TreeMap<>(ImmutableMap.of(KIBANA_INDEX + "001", null)));
+
+        //try to disable MT
+        ConfigMap configMap = configMapWithConfig(
+            SgDynamicConfiguration.of(
+                TYPE,
+                "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
+        );
+        feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
+
+        FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
+        assertThat(validationErrors, hasSize(1));
+        assertThat(validationErrors.get(0).getAttribute(), equalTo("frontend_multi_tenancy.default"));
+        assertThat(validationErrors.get(0).getMessage(), equalTo("Cannot change the value of the 'enabled' flag to 'false'. Multitenancy cannot be disabled, please contact the support team"));
+
+        //try to enable MT
+        configMap = configMapWithConfig(
+            SgDynamicConfiguration.of(
+                TYPE,
+                "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
+        );
+        feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
+
+        feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig), OMIT_MT_ENABLED_VALIDATION);
         assertThat(validationErrors, hasSize(0));
 
 
@@ -424,8 +586,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMultiTenancyEnabledFlagValidator.setConfigMap(null);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
-        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
+        validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig), OMIT_MT_ENABLED_VALIDATION);
         assertThat(validationErrors, hasSize(0));
     }
 
@@ -436,25 +598,27 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //try to disable MT
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(0));
 
         //try to enable MT
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(0));
 
@@ -463,7 +627,7 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMultiTenancyEnabledFlagValidator.setConfigMap(null);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(0));
     }
@@ -473,13 +637,14 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
 
         //MT disabled
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator
                 .validateConfigs(Arrays.asList(newConfig, null));
         assertThat(validationErrors, hasSize(0));
@@ -488,20 +653,21 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
         feMultiTenancyEnabledFlagValidator.setConfigMap(null);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator
                 .validateConfigs(Arrays.asList(newConfig, SgDynamicConfiguration.empty(CType.ROLES)));
         assertThat(validationErrors, hasSize(0));
 
         //MT enabled
         configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
 
         feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", feMtConfig);
+        newConfig = SgDynamicConfiguration.of(TYPE, "default", feMtConfig);
         validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(0));
 
@@ -512,7 +678,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configList_shouldDoNothing_listContainsConfigWithUnsupportedType() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -528,7 +695,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configList_shouldDoNothing_listIsNull() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -542,7 +710,8 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configList_shouldDoNothing_listContainsOnlyNullElement() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
@@ -556,11 +725,12 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configList_shouldDoNothing_listContainsEmptyConfig() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.empty(FeMultiTenancyConfig.TYPE);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.empty(TYPE);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(0));
 
@@ -571,12 +741,13 @@ public class FeMultiTenancyEnabledFlagValidatorTest {
     public void configList_shouldDoNothing_listContainsConfigWithUnsupportedKey() throws Exception {
 
         ConfigMap configMap = configMapWithConfig(
-                SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE,
+                SgDynamicConfiguration.of(
+                    TYPE,
                         "default", FeMultiTenancyConfig.parse(DocNode.of("enabled", false), null).get())
         );
         feMultiTenancyEnabledFlagValidator.setConfigMap(configMap);
         FeMultiTenancyConfig feMtConfig = FeMultiTenancyConfig.parse(DocNode.of("enabled", true), null).get();
-        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "unsupported", feMtConfig);
+        SgDynamicConfiguration<FeMultiTenancyConfig> newConfig = SgDynamicConfiguration.of(TYPE, "unsupported", feMtConfig);
         List<ValidationError> validationErrors = feMultiTenancyEnabledFlagValidator.validateConfigs(Collections.singletonList(newConfig));
         assertThat(validationErrors, hasSize(0));
 

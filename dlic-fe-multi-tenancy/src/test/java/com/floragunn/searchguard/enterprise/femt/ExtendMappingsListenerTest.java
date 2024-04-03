@@ -93,7 +93,7 @@ public class ExtendMappingsListenerTest {
     }
 
     @Test
-    public void shouldNotExtendMappingsWhenMultitenancyWasEnabledAndPreviousStateIsUnknown() {
+    public void shouldNotExtendMappingsWhenMultitenancyWasDisabledAndPreviousStateIsUnknown() {
         var newConfig = SgDynamicConfiguration.of(FeMultiTenancyConfig.TYPE, "default", DISABLED);
 
         listener.onChange(null, newConfig);
